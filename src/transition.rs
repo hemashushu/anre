@@ -9,7 +9,7 @@ use std::fmt::Display;
 use crate::{
     ast::{AnchorAssertionName, BoundaryAssertionName},
     context::{Context, MatchRange},
-    object_file::ObjectFile,
+    object::Object,
     process::start_routine,
     utf8reader::{read_char, read_previous_char},
 };
@@ -86,7 +86,7 @@ pub enum CharSetItem {
 #[derive(Debug)]
 pub struct CharRange {
     pub start: u32,        // Start of the range
-    pub end_included: u32, // End of the range (inclusive)
+    pub end_inclusive: u32, // End of the range (inclusive)
 }
 
 /// Represents a transition that matches a backreference to a capture group.
@@ -184,10 +184,10 @@ impl CharSetItem {
         CharSetItem::Char(character as u32)
     }
 
-    pub fn new_range(start: char, end_included: char) -> Self {
+    pub fn new_range(start: char, end_inclusive: char) -> Self {
         let char_range = CharRange {
             start: start as u32,
-            end_included: end_included as u32,
+            end_inclusive: end_inclusive as u32,
         };
         CharSetItem::Range(char_range)
     }
@@ -245,8 +245,8 @@ pub fn add_char(items: &mut Vec<CharSetItem>, c: char) {
     items.push(CharSetItem::new_char(c));
 }
 
-pub fn add_range(items: &mut Vec<CharSetItem>, start: char, end_included: char) {
-    items.push(CharSetItem::new_range(start, end_included));
+pub fn add_range(items: &mut Vec<CharSetItem>, start: char, end_inclusive: char) {
+    items.push(CharSetItem::new_range(start, end_inclusive));
 }
 
 pub fn add_preset_space(items: &mut Vec<CharSetItem>) {
@@ -430,8 +430,8 @@ impl Display for CharSetTransition {
                 }
                 CharSetItem::Range(r) => {
                     let start = unsafe { char::from_u32_unchecked(r.start) };
-                    let end_included = unsafe { char::from_u32_unchecked(r.end_included) };
-                    format!("'{}'..'{}'", start, end_included)
+                    let end_inclusive = unsafe { char::from_u32_unchecked(r.end_inclusive) };
+                    format!("'{}'..'{}'", start, end_inclusive)
                 }
             };
             lines.push(line);
@@ -550,10 +550,11 @@ impl Display for LookBehindAssertionTransition {
 }
 
 impl Transition {
+
     pub fn execute(
         &self,
         context: &mut Context,
-        object_file: &ObjectFile,
+        object: &Object,
 
         // the current position, it is like a cursor in the original text.
         position: usize,
@@ -661,7 +662,7 @@ impl Transition {
                     found = match item {
                         CharSetItem::Char(c) => current_char == *c,
                         CharSetItem::Range(r) => {
-                            current_char >= r.start && current_char <= r.end_included
+                            current_char >= r.start && current_char <= r.end_inclusive
                         }
                     };
 
@@ -775,7 +776,7 @@ impl Transition {
                 let route_index = transition.route_index;
                 let thread_result = start_routine(
                     context,
-                    object_file,
+                    object,
                     route_index,
                     position,
                     context.bytes.len(),
@@ -800,7 +801,7 @@ impl Transition {
                     // the child thread should start at position "current_position - backword_count_in_bytes".
                     start_routine(
                         context,
-                        object_file,
+                        object,
                         route_index,
                         start,
                         context.bytes.len(),
@@ -823,6 +824,7 @@ impl Transition {
 }
 
 // return Err if the position it less than 0
+#[inline]
 fn get_position_by_chars_backward(
     bytes: &[u8],
     mut current_position: usize,
@@ -856,6 +858,7 @@ fn is_end(bytes: &[u8], position: usize) -> bool {
     position >= total_byte_length
 }
 
+#[inline]
 fn is_word_bound(bytes: &[u8], position: usize) -> bool {
     if bytes.is_empty() {
         false
@@ -877,6 +880,7 @@ fn is_word_bound(bytes: &[u8], position: usize) -> bool {
     }
 }
 
+#[inline]
 fn is_word_char(c: u32) -> bool {
     (c >= 'a' as u32 && c <= 'z' as u32)
         || (c >= 'A' as u32 && c <= 'Z' as u32)

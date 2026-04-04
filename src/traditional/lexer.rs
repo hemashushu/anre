@@ -966,7 +966,7 @@ impl Lexer<'_> {
             self.next_char(); // consume ','
             if self.peek_char_and_equals(0, '}') {
                 self.next_char(); // consume '}'
-                Repetition::AtLeast(from)
+                Repetition::RepeatFrom(from)
             } else {
                 let to = self.lex_number()?;
                 // consume '}'
@@ -1576,7 +1576,7 @@ mod tests {
                     3
                 ),
                 TokenWithRange::from_position_and_length(
-                    Token::Repetition(Repetition::AtLeast(5), false),
+                    Token::Repetition(Repetition::RepeatFrom(5), false),
                     &Location::new_position(/*0,*/ 3, 0, 3),
                     4
                 ),
@@ -1597,7 +1597,7 @@ mod tests {
                     4
                 ),
                 TokenWithRange::from_position_and_length(
-                    Token::Repetition(Repetition::AtLeast(5), true),
+                    Token::Repetition(Repetition::RepeatFrom(5), true),
                     &Location::new_position(/*0,*/ 4, 0, 4),
                     5
                 ),

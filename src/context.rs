@@ -4,7 +4,7 @@
 // the Mozilla Public License version 2.0 and additional exceptions.
 // For more details, see the LICENSE, LICENSE.additional, and CONTRIBUTING files.
 
-use crate::object_file::ObjectFile;
+use crate::object::Object;
 
 /// Context for a running process.
 pub struct Context<'a> {
@@ -26,7 +26,7 @@ pub struct Context<'a> {
     //
     // For example:
     // `(ab\d+){2,}` means
-    // `at_least(("ab", one_or_more(char_digit)), 2)`.
+    // `repeat_from(("ab", one_or_more(char_digit)), 2)`.
     //
     // It is necessary to store the current repetition count
     // before entering a new transition.
@@ -150,7 +150,7 @@ impl<'a> Context<'a> {
 
     pub fn push_transitions_of_node(
         &mut self,
-        object_file: &ObjectFile,
+        object: &Object,
         node_index: usize,
         position: usize,
         repetition_count: usize,
@@ -158,7 +158,7 @@ impl<'a> Context<'a> {
         let transition_count = {
             let routine = self.get_current_routine_ref();
             let route_index = routine.route_index;
-            let node = &object_file.routes[route_index].nodes[node_index];
+            let node = &object.routes[route_index].nodes[node_index];
             node.transition_items.len()
         };
 

@@ -45,7 +45,7 @@ pub enum Token {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Repetition {
     Specified(usize),
-    AtLeast(usize),
+    RepeatFrom(usize),
     Range(usize, usize),
 }
 

@@ -1,45 +1,51 @@
-// Copyright (c) 2025 Hemashushu <hippospark@gmail.com>, All rights reserved.
+// Copyright (c) 2026 Hemashushu <hippospark@gmail.com>, All rights reserved.
 //
 // This Source Code Form is subject to the terms of
 // the Mozilla Public License version 2.0 and additional exceptions.
 // For more details, see the LICENSE, LICENSE.additional, and CONTRIBUTING files.
 
-pub const PARSER_PEEK_TOKEN_MAX_COUNT: usize = 4;
-
 use crate::{
+    anre::macro_expander::expand,
     ast::{
-        AnchorAssertionName, BackReference, BoundaryAssertionName, CharRange, CharSet,
-        CharSetElement, Expression, FunctionCall, FunctionName, Literal, PresetCharSetName,
-        Program, SpecialCharName,
+        BackReference, CharRange, CharSet, CharSetElement, Expression, FunctionArgument,
+        FunctionCall, FunctionName, Literal, PresetCharSetName, Program,
     },
-    location::Location,
-    peekableiter::PeekableIter,
-    AnreError,
+    error::AnreError,
+    peekable_iter::PeekableIter,
+    range::Range,
 };
 
 use super::{
-    commentremover::clean,
     lexer::lex_from_str,
-    macroexpander::expand,
-    normalizer::normalize,
     token::{Token, TokenWithRange},
 };
 
+pub fn parse_from_str(s: &str) -> Result<Program, AnreError> {
+    let tokens = lex_from_str(s)?;
+    let expanded_tokens = expand(tokens)?;
+    let mut token_iter = expanded_tokens.into_iter();
+    let mut peekable_token_iter = PeekableIter::new(&mut token_iter);
+    let mut parser = Parser::new(&mut peekable_token_iter);
+    parser.parse_program()
+}
+
 pub struct Parser<'a> {
     upstream: &'a mut PeekableIter<'a, TokenWithRange>,
-    last_range: Location,
+
+    /// The range of the last consumed token by `next_token` or `next_token_with_range`.
+    pub last_range: Range,
 }
 
 impl<'a> Parser<'a> {
     fn new(upstream: &'a mut PeekableIter<'a, TokenWithRange>) -> Self {
         Self {
             upstream,
-            last_range: Location::new_range(/*0,*/ 0, 0, 0, 0),
+            last_range: Range::default(),
         }
     }
 
     fn next_token(&mut self) -> Option<Token> {
-        match self.upstream.next() {
+        match self.next_token_with_range() {
             Some(TokenWithRange { token, range }) => {
                 self.last_range = range;
                 Some(token)
@@ -48,9 +54,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn peek_range(&self, offset: usize) -> Option<&Location> {
-        match self.upstream.peek(offset) {
-            Some(TokenWithRange { range, .. }) => Some(range),
+    fn next_token_with_range(&mut self) -> Option<TokenWithRange> {
+        match self.upstream.next() {
+            Some(token_with_range) => {
+                self.last_range = token_with_range.range;
+                Some(token_with_range)
+            }
             None => None,
         }
     }
@@ -62,51 +71,97 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expect_token(&self, offset: usize, expected_token: &Token) -> bool {
+    fn peek_token_with_range(&self, offset: usize) -> Option<&TokenWithRange> {
+        self.upstream.peek(offset)
+    }
+
+    fn peek_range(&self, offset: usize) -> Option<&Range> {
+        match self.upstream.peek(offset) {
+            Some(TokenWithRange { range, .. }) => Some(range),
+            None => None,
+        }
+    }
+
+    // Peek the next token and check if it equals to the expected token,
+    // return false if not equals or no more token,
+    // error if lexing error occurs during peeking.
+    fn peek_token_and_equals(&self, offset: usize, expected_token: &Token) -> bool {
         matches!(
             self.peek_token(offset),
             Some(token) if token == expected_token)
     }
 
-    /// Returns:
-    /// - `None` if the specified token is not found.
-    /// - `Some(false)` if the token is found without a newline.
-    /// - `Some(true)` if the token is found and preceded by a newline.
-    fn expect_token_ignore_newline(&self, offset: usize, expected_token: &Token) -> Option<bool> {
-        if self.expect_token(offset, expected_token) {
-            Some(false)
-        } else if self.expect_token(offset, &Token::NewLine)
-            && self.expect_token(offset + 1, expected_token)
-        {
-            Some(true)
-        } else {
-            None
+    fn consume_identifier(&mut self) -> Result<String, AnreError> {
+        match self.next_token() {
+            Some(Token::Identifier(id)) => Ok(id),
+            Some(_) => Err(AnreError::MessageWithPosition(
+                "Expect an identifier.".to_owned(),
+                self.last_range.start,
+            )),
+            None => Err(AnreError::UnexpectedEndOfDocument(
+                "Expect an identifier.".to_owned(),
+            )),
         }
     }
 
-    // Consumes a newline (`\n`) if it exists.
-    fn consume_new_line_if_exist(&mut self) -> bool {
-        match self.peek_token(0) {
-            Some(Token::NewLine) => {
-                self.next_token();
-                true
-            }
-            _ => false,
+    /// Consume the next token and check if it's an identifier with the expected name,
+    /// return the identifier if it matches, otherwise return an error.
+    fn consume_identifier_and_assert(&mut self, identifier: &str) -> Result<String, AnreError> {
+        match self.next_token() {
+            Some(Token::Identifier(id)) if id == identifier => Ok(id),
+            Some(_) => Err(AnreError::MessageWithPosition(
+                format!("Expect identifier \"{}\".", identifier),
+                self.last_range.start,
+            )),
+            None => Err(AnreError::UnexpectedEndOfDocument(format!(
+                "Expect identifier \"{}\".",
+                identifier
+            ))),
         }
     }
 
-    // Consumes a newline (`\n`) or a comma (`,`) if they exist.
-    fn consume_new_line_or_comma_if_exist(&mut self) -> bool {
-        match self.peek_token(0) {
-            Some(Token::NewLine | Token::Comma) => {
-                self.next_token();
-                true
-            }
-            _ => false,
+    fn consume_char(&mut self) -> Result<char, AnreError> {
+        match self.next_token() {
+            Some(Token::Char(c)) => Ok(c),
+            Some(_) => Err(AnreError::MessageWithPosition(
+                "Expect a character.".to_owned(),
+                self.last_range.start,
+            )),
+            None => Err(AnreError::UnexpectedEndOfDocument(
+                "Expect a character.".to_owned(),
+            )),
         }
     }
 
-    fn consume_token(
+    fn consume_string(&mut self) -> Result<String, AnreError> {
+        match self.next_token() {
+            Some(Token::String(s)) => Ok(s),
+            Some(_) => Err(AnreError::MessageWithPosition(
+                "Expect a string.".to_owned(),
+                self.last_range.start,
+            )),
+            None => Err(AnreError::UnexpectedEndOfDocument(
+                "Expect a string.".to_owned(),
+            )),
+        }
+    }
+
+    fn consume_number(&mut self) -> Result<usize, AnreError> {
+        match self.next_token() {
+            Some(Token::Number(i)) => Ok(i),
+            Some(_) => Err(AnreError::MessageWithPosition(
+                "Expect a number.".to_owned(),
+                self.last_range.start,
+            )),
+            None => Err(AnreError::UnexpectedEndOfDocument(
+                "Expect a number.".to_owned(),
+            )),
+        }
+    }
+
+    // Consume the next token and assert it equals to the expected token,
+    // error if not equal or no more token
+    fn consume_token_and_assert(
         &mut self,
         expected_token: &Token,
         token_description: &str,
@@ -116,9 +171,9 @@ impl<'a> Parser<'a> {
                 if &token == expected_token {
                     Ok(())
                 } else {
-                    Err(AnreError::MessageWithLocation(
+                    Err(AnreError::MessageWithRange(
                         format!("Expect token: {}.", token_description),
-                        self.last_range.get_position_by_range_start(),
+                        self.last_range,
                     ))
                 }
             }
@@ -129,194 +184,223 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn consume_identifier(&mut self) -> Result<String, AnreError> {
-        match self.peek_token(0) {
-            Some(Token::Identifier(s)) => {
-                let id = s.to_owned();
-                self.next_token();
-                Ok(id)
-            }
-            Some(_) => Err(AnreError::MessageWithLocation(
-                "Expect an identifier.".to_owned(),
-                self.peek_range(0).unwrap().get_position_by_range_start(),
-            )),
-            None => Err(AnreError::UnexpectedEndOfDocument(
-                "Expect an identifier.".to_owned(),
-            )),
-        }
+    // Consume '(', error if the next token is not '(' or no more token
+    fn consume_opening_parenthesis(&mut self) -> Result<(), AnreError> {
+        self.consume_token_and_assert(&Token::ParenthesisOpen, "opening parenthesis")
     }
 
-    fn consume_number(&mut self) -> Result<usize, AnreError> {
-        match self.peek_token(0) {
-            Some(Token::Number(n)) => {
-                let num = *n;
-                self.next_token();
-                Ok(num)
-            }
-            Some(_) => Err(AnreError::MessageWithLocation(
-                "Expect a number.".to_owned(),
-                self.peek_range(0).unwrap().get_position_by_range_start(),
-            )),
-            None => Err(AnreError::UnexpectedEndOfDocument(
-                "Expect a number.".to_owned(),
-            )),
-        }
+    // Consume ')', error if the next token is not ')' or no more token
+    fn consume_closing_parenthesis(&mut self) -> Result<(), AnreError> {
+        self.consume_token_and_assert(&Token::ParenthesisClose, "closing parenthesis")
     }
 
-    fn consume_char(&mut self) -> Result<char, AnreError> {
-        match self.peek_token(0) {
-            Some(Token::Char(c)) => {
-                let ch = *c;
-                self.next_token();
-                Ok(ch)
-            }
-            Some(_) => Err(AnreError::MessageWithLocation(
-                "Expect a char.".to_owned(),
-                self.peek_range(0).unwrap().get_position_by_range_start(),
-            )),
-            None => Err(AnreError::UnexpectedEndOfDocument(
-                "Expect a char.".to_owned(),
-            )),
-        }
+    // Consume ']', error if the next token is not ']' or no more token
+    fn consume_closing_bracket(&mut self) -> Result<(), AnreError> {
+        self.consume_token_and_assert(&Token::BracketClose, "closing bracket")
     }
 
-    // '('
-    fn consume_left_paren(&mut self) -> Result<(), AnreError> {
-        self.consume_token(&Token::LeftParen, "left parenthese")
-    }
-
-    // ')'
-    fn consume_right_paren(&mut self) -> Result<(), AnreError> {
-        self.consume_token(&Token::RightParen, "right parenthese")
-    }
-
-    // ']'
-    fn consume_right_bracket(&mut self) -> Result<(), AnreError> {
-        self.consume_token(&Token::RightBracket, "right bracket")
-    }
-
-    // '}'
-    fn consume_right_brace(&mut self) -> Result<(), AnreError> {
-        self.consume_token(&Token::RightBrace, "right brace")
+    // Consume '}', error if the next token is not '}' or no more token
+    fn consume_closing_brace(&mut self) -> Result<(), AnreError> {
+        self.consume_token_and_assert(&Token::BraceClose, "closing brace")
     }
 }
 
 impl Parser<'_> {
     pub fn parse_program(&mut self) -> Result<Program, AnreError> {
-        let mut expressions = vec![];
+        let expression = self.parse_expression()?;
 
-        while self.peek_token(0).is_some() {
-            let expression = self.parse_expression()?;
-            expressions.push(expression);
-
-            // consume separator
-            let found_sep = self.consume_new_line_or_comma_if_exist();
-            if !found_sep {
-                break;
-            }
+        if self.peek_token(0).is_some() {
+            return Err(AnreError::MessageWithRange(
+                "Only one expression is allowed at ANRE root, consider wrapping multiple expressions in a group.".to_owned(),
+                *self.peek_range(0).unwrap()
+            ));
         }
 
-        // extract elements from a group if the group contains only one element
-        // and the element's type is 'Group'
-
-        let program = if expressions.len() == 1
-            && matches!(expressions.first().unwrap(), Expression::Group(_))
-        {
-            let first = expressions.remove(0);
-            if let Expression::Group(exps) = first {
-                Program { expressions: exps }
-            } else {
-                unreachable!()
-            }
-        } else {
-            Program { expressions }
-        };
-
-        Ok(program)
+        Ok(Program { expression })
     }
 
     fn parse_expression(&mut self) -> Result<Expression, AnreError> {
+        // ```diagram
         // token ...
         // -----
         // ^
-        // | current, None or Some(...)
+        // |__ current, None or Some(...)
+        // ```
 
         // the expression parsing order:
         //
-        //    > precedence low <
-        // 1. binary expressions (logic or, and, equality, comparision, additive, multiplicative etc.)
-        // 2. unary expressions (negative etc.)
-        // 3. simple expressions (dot function call, slice, index etc.)
-        // 4. primary expressions (group, list, map, identifier, literal etc.)
-        //    > precedence high <
+        // > precedence low, processed later
+        // 1. binary expressions (logic or)
+        // 2. name capture
+        // 3. index capture
+        // 4. method call
+        // 5. quantifier
+        // 6. primary expressions (literal, group, identifier, function call)
+        // > precedence high, processed first
 
         self.parse_logic_or()
     }
 
     fn parse_logic_or(&mut self) -> Result<Expression, AnreError> {
-        // token ... [ "||" expression ]
-        // -----
-        // ^
-        // | current, None or Some(...)
+        // ```diagram
+        // expression || expression
+        // ```
 
-        let mut left = self.parse_notation_and_rear_function_call()?;
+        let mut left = self.parse_named_capture()?;
 
-        // while let Some(Token::LogicOr) = self.peek_token(0) {
-        while self.peek_token(0).is_some() {
-            match self.expect_token_ignore_newline(0, &Token::LogicOr) {
-                Some(exists_new_line) => {
-                    if exists_new_line {
-                        self.next_token(); // consume '\n'
-                    }
+        while self.peek_token_and_equals(0, &Token::LogicOr) {
+            self.next_token(); // consume "||"
 
-                    self.next_token(); // consume "||"
-                    self.consume_new_line_if_exist(); // consume trailing new-line
+            // Operator associativity:
+            //
+            // - https://en.wikipedia.org/wiki/Operator_associativity
+            // - https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B#Operator_precedence
+            //
+            // Representation:
+            // - left-associative (left-to-right associative)
+            //   `a || b || c -> (a || b) || c`
+            // - right-associative (right-to-left associative)
+            //   `a || b || c -> a || (b || c)`
+            //
+            // call `parse_expression` for right-to-left associative, e.g.
+            // `let right = self.parse_expression()?;`
+            // or call `parse_named_capture` for left-to-right associative, e.g.
+            // `let right = self.parse_named_capture()?;`
+            //
+            // currently right-associative is adopted for efficiency.
 
-                    // Operator associativity
-                    // - https://en.wikipedia.org/wiki/Operator_associativity
-                    // - https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B#Operator_precedence
-                    //
-                    // left-associative, left-to-right associative
-                    // a || b || c -> (a || b) || c
-                    //
-                    // right-associative, righ-to-left associative
-                    // a || b || c -> a || (b || c)
-                    //
-                    // note:
-                    // using `parse_expression` for right-to-left associative, e.g.
-                    // `let right = self.parse_expression()?;`
-                    // or
-                    // using `parse_notation_and_rear_function_call` for left-to-right associative, e.g.
-                    // `let right = self.parse_notation_and_rear_function_call()?;`
-                    //
-                    // for the current interpreter, it is more efficient by using right-associative.
-
-                    let right = self.parse_expression()?;
-                    let expression = Expression::Or(Box::new(left), Box::new(right));
-                    left = expression;
-                }
-                None => {
-                    break;
-                }
-            }
+            let right = self.parse_expression()?;
+            let expression = Expression::Or(Box::new(left), Box::new(right));
+            left = expression;
         }
 
         Ok(left)
     }
 
-    fn parse_notation_and_rear_function_call(&mut self) -> Result<Expression, AnreError> {
-        // token ... [ notations | ("." identifier "(" ...)]
-        // -----
-        // ^
-        // | current, None or Some(...)
-        //
-        // the new-line rules:
-        // - 'expression' notations
-        // - 'expression' newline? '.' newline? identifier newline? ( ... )
+    fn parse_named_capture(&mut self) -> Result<Expression, AnreError> {
+        // ```diagram
+        // expression as identifier
+        // ```
+
+        let expression = self.parse_index_capture()?;
+        if self.peek_token_and_equals(0, &Token::Keyword("as".to_owned())) {
+            self.next_token(); // consume "as"
+
+            let name = self.consume_identifier()?;
+
+            if let Expression::IndexCapture(exp) = expression {
+                // If the expression is already an index capture,
+                // we can directly convert it to a name capture without nesting,
+                // since name capture implies index capture.
+                Ok(Expression::NameCapture(name, exp))
+            } else {
+                // Otherwise, we wrap the expression in a new name capture.
+                Ok(Expression::NameCapture(name, Box::new(expression)))
+            }
+        } else {
+            Ok(expression)
+        }
+    }
+
+    fn parse_index_capture(&mut self) -> Result<Expression, AnreError> {
+        // ```diagram
+        // # expression
+        // ```
+
+        if self.peek_token_and_equals(0, &Token::Hash) {
+            self.next_token(); // consume '#'
+
+            let expression = self.parse_method_call()?;
+
+            if matches!(expression, Expression::NameCapture(_, _)) {
+                // If the expression is a name capture, we should not wrap it in an index capture,
+                // since name capture already implies index capture.
+                // e.g.
+                // `# (foo as bar)` should be parsed as `foo as bar`, not `# (foo as bar)`.
+                Ok(expression)
+            } else {
+                Ok(Expression::IndexCapture(Box::new(expression)))
+            }
+        } else {
+            self.parse_method_call()
+        }
+    }
+
+    fn parse_method_call(&mut self) -> Result<Expression, AnreError> {
+        // ```diagram
+        // expression.identifier(arguments)
+        // ```
+
+        let mut expression = self.parse_quantifier()?;
+
+        while self.peek_token_and_equals(0, &Token::Dot)
+            && matches!(self.peek_token(1), Some(Token::Identifier(_)))
+            && matches!(self.peek_token(2), Some(Token::ParenthesisOpen))
+        {
+            let function_call = self.continue_parse_method_call(expression)?;
+            expression = Expression::FunctionCall(Box::new(function_call));
+        }
+
+        Ok(expression)
+    }
+
+    fn continue_parse_method_call(
+        &mut self,
+        expression: Expression,
+    ) -> Result<FunctionCall, AnreError> {
+        // ```diagram
+        // "." identifier "(" {args} ")" ?
+        // --- ---------- ---            -
+        // ^   ^          ^__ validated  ^__ to here
+        // |   |__ validated
+        // |__ current, validated
+        // ```
+
+        self.next_token(); // consume '.'
+
+        let identifier = self.consume_identifier()?; // consume function name
+        let name: FunctionName = identifier.as_str().try_into().map_err(|_| {
+            AnreError::MessageWithRange(
+                format!("Unsupported function \"{}\"", identifier),
+                self.last_range,
+            )
+        })?;
+
+        self.next_token(); // consume '('
+
+        let mut args = vec![];
+        args.push(FunctionArgument::Expression(expression));
+
+        while let Some(token) = self.peek_token(0) {
+            if token == &Token::ParenthesisClose {
+                break;
+            }
+
+            if matches!(self.peek_token(0), Some(Token::Number(_))) {
+                let number = self.consume_number()?;
+                args.push(FunctionArgument::Number(number));
+            } else {
+                let expression = self.parse_expression()?;
+                args.push(FunctionArgument::Expression(expression));
+            }
+        }
+
+        self.consume_closing_parenthesis()?; // consume ')'
+
+        let function_call = FunctionCall { name, args };
+
+        Ok(function_call)
+    }
+
+    fn parse_quantifier(&mut self) -> Result<Expression, AnreError> {
+        // ```diagram
+        // expression [ "?" | "+" | "*" | "{N}" | "{N..}" | "{N..M}" ]
+        // expression [ "??" | "+?" | "*?" | "{N..}?" | "{N..M}?" ]
+        // ```
 
         let mut expression = self.parse_primary_expression()?;
 
-        while let Some(token) = self.peek_token(0) {
+        if let Some(token) = self.peek_token(0) {
             match token {
                 Token::Question
                 | Token::Plus
@@ -324,70 +408,81 @@ impl Parser<'_> {
                 | Token::QuestionLazy
                 | Token::PlusLazy
                 | Token::AsteriskLazy => {
-                    /* notations */
-
                     let name = match token {
                         // Greedy quantifier
                         Token::Question => FunctionName::Optional,
                         Token::Plus => FunctionName::OneOrMore,
                         Token::Asterisk => FunctionName::ZeroOrMore,
-
                         // Lazy quantifier
                         Token::QuestionLazy => FunctionName::OptionalLazy,
                         Token::PlusLazy => FunctionName::OneOrMoreLazy,
                         Token::AsteriskLazy => FunctionName::ZeroOrMoreLazy,
-
                         _ => unreachable!(),
                     };
 
                     let function_call = FunctionCall {
                         name,
-                        args: vec![expression],
+                        args: vec![FunctionArgument::Expression(expression)],
                     };
                     expression = Expression::FunctionCall(Box::new(function_call));
 
                     self.next_token(); // consume notation
                 }
-                Token::LeftBrace => {
-                    /* repeat specified or range */
-
-                    let (notation_quantifier, lazy) = self.continue_parse_notation_quantifier()?;
+                Token::BraceOpen => {
+                    let (repetition, lazy) = self.continue_parse_repetition()?;
 
                     let mut args = vec![];
-                    args.push(expression);
+                    args.push(FunctionArgument::Expression(expression));
 
-                    let name = match notation_quantifier {
-                        NotationQuantifier::Repeat(n) => {
+                    let name = match repetition {
+                        Repetition::Repeat(n) => {
                             if lazy {
-                                return Err(AnreError::MessageWithLocation(
-                                    "Specified number of repetitions does not support lazy mode, i.e. '{m}?' is not allowed.".to_owned(), self.last_range));
+                                return Err(AnreError::MessageWithRange(
+                                    format!(
+                                        "Specified repetition does not support lazy mode, \"{{{}}}?\" is not allowed.",
+                                        n
+                                    ),
+                                    self.last_range,
+                                ));
                             }
 
-                            args.push(Expression::Literal(Literal::Number(n)));
+                            args.push(FunctionArgument::Number(n));
                             FunctionName::Repeat
                         }
-                        NotationQuantifier::RepeatRange(m, n) => {
-                            if lazy && m == n {
-                                return Err(AnreError::MessageWithLocation(
-                                    "Specified number of repetitions does not support lazy mode, i.e. '{m,m}?' is not allowed.".to_owned(), self.last_range));
-                            }
+                        Repetition::RepeatRange(m, n) => {
+                            // `FunctionName::Repeat` is used for the `{m, n}` quantifier
+                            // when m == n, which is a special case that can be optimized to a fixed repetition.
+                            if m == n {
+                                if lazy {
+                                    return Err(AnreError::MessageWithRange(
+                                        format!(
+                                            "Specified repetition does not support lazy mode, \"{{{},{}}}?\" is not allowed.",
+                                            m, n
+                                        ),
+                                        self.last_range,
+                                    ));
+                                }
 
-                            args.push(Expression::Literal(Literal::Number(m)));
-                            args.push(Expression::Literal(Literal::Number(n)));
-
-                            if lazy {
-                                FunctionName::RepeatRangeLazy
+                                args.push(FunctionArgument::Number(n));
+                                FunctionName::Repeat
                             } else {
-                                FunctionName::RepeatRange
+                                args.push(FunctionArgument::Number(m));
+                                args.push(FunctionArgument::Number(n));
+
+                                if lazy {
+                                    FunctionName::RepeatRangeLazy
+                                } else {
+                                    FunctionName::RepeatRange
+                                }
                             }
                         }
-                        NotationQuantifier::AtLeast(n) => {
-                            args.push(Expression::Literal(Literal::Number(n)));
+                        Repetition::RepeatFrom(n) => {
+                            args.push(FunctionArgument::Number(n));
 
                             if lazy {
-                                FunctionName::AtLeastLazy
+                                FunctionName::RepeatFromLazy
                             } else {
-                                FunctionName::AtLeast
+                                FunctionName::RepeatFrom
                             }
                         }
                     };
@@ -396,16 +491,7 @@ impl Parser<'_> {
                     expression = Expression::FunctionCall(Box::new(function_call));
                 }
                 _ => {
-                    if let Some(exists_newline) = self.expect_token_ignore_newline(0, &Token::Dot) {
-                        if exists_newline {
-                            self.next_token(); // consume '\n'
-                        }
-
-                        let function_call = self.continue_parse_rear_function_call(expression)?;
-                        expression = Expression::FunctionCall(Box::new(function_call));
-                    } else {
-                        break;
-                    }
+                    // not a quantifier, do nothing
                 }
             }
         }
@@ -413,208 +499,78 @@ impl Parser<'_> {
         Ok(expression)
     }
 
-    fn continue_parse_notation_quantifier(
-        &mut self,
-    ) -> Result<(NotationQuantifier, bool), AnreError> {
-        // {m, n}? ?
+    fn continue_parse_repetition(&mut self) -> Result<(Repetition, /* is_lazy */ bool), AnreError> {
+        // ```diagram
+        // {m..n}? ?
         // -       -
         // ^       ^__ to here
         // | current, validated
+        // ```
 
         self.next_token(); // consume '{'
-        self.consume_new_line_if_exist(); // consume trailing new-line
 
         let from = self.consume_number()?;
 
-        // About the `{m,}` quantifier:
-        // The comma following the first number is NOT a typical separator.
-        // It cannot be replaced by a newline like a normal comma.
-        // Its presence indicates either the existence of a second number or that
-        // the second number is implicitly infinite.
-
-        let (dual, to_optional) = if self.expect_token(0, &Token::Comma) {
+        let repetition = if self.peek_token_and_equals(0, &Token::Range) {
             // Example:
-            //
-            // `{m,}` `{m,n}`
-            //
-            // ```
-            // {
-            //     m,
-            // }
-            // ```
-            //
-            // ```
-            // {
-            //     m, n
-            // }
-            // ```
-            self.next_token(); // consume ','
+            // - `{m..}`
+            // - `{m..n}`
 
-            let to_optional = if let Some(Token::Number(to_ref)) = self.peek_token(0) {
-                let to = *to_ref;
+            self.next_token(); // consume '..'
+
+            if let Some(Token::Number(v)) = self.peek_token(0) {
+                let to = *v;
                 self.next_token(); // consume number
-                Some(to)
+                Repetition::RepeatRange(from, to)
             } else {
-                None
-            };
-
-            (true, to_optional)
-        } else if self.expect_token(0, &Token::NewLine)
-            && matches!(self.peek_token(1), Some(Token::Number(_)))
-        {
-            // Example:
-            //
-            // ```
-            // {
-            //     m
-            //     n
-            // }
-            // ```
-
-            self.next_token(); // consume new-line
-
-            let to_optional = if let Some(Token::Number(to)) = self.next_token() {
-                Some(to)
-            } else {
-                unreachable!()
-            };
-
-            (true, to_optional)
+                Repetition::RepeatFrom(from)
+            }
         } else {
             // Example:
-            //
             // `{m}`
-            //
-            // ```
-            // {
-            //     m
-            // }
-            // ```
-            (false, None)
+            Repetition::Repeat(from)
         };
 
-        self.consume_new_line_if_exist();
-        self.consume_right_brace()?; // consume '}'
+        self.consume_closing_brace()?; // consume '}'
 
-        let lazy = if self.expect_token(0, &Token::Question) {
+        let lazy = if self.peek_token_and_equals(0, &Token::Question) {
             self.next_token(); // consume trailing '?'
             true
         } else {
             false
         };
 
-        let quantifier = if dual {
-            if let Some(to) = to_optional {
-                NotationQuantifier::RepeatRange(from, to)
-            } else {
-                NotationQuantifier::AtLeast(from)
-            }
-        } else {
-            NotationQuantifier::Repeat(from)
-        };
-
-        Ok((quantifier, lazy))
-    }
-
-    fn continue_parse_rear_function_call(
-        &mut self,
-        expression: Expression,
-    ) -> Result<FunctionCall, AnreError> {
-        // "." identifier "(" {args} ")"     ?
-        // --- ---------- ---                -
-        // ^   ^          ^__ NOT validated  ^ to here
-        // |   |__ NOT validated
-        // | current, validated
-
-        // newline rules:
-        // . newline? identifier newline? '(...)'
-
-        self.next_token(); // consume '.'
-        self.consume_new_line_if_exist();
-
-        let name_string = self.consume_identifier()?; // consume function name
-        self.consume_new_line_if_exist();
-
-        let name = function_name_from_str(&name_string, &self.last_range)?;
-
-        self.consume_left_paren()?; // consume '('
-        self.consume_new_line_if_exist(); // consume trailing new-line
-
-        let mut args = vec![];
-        args.push(expression);
-
-        while let Some(token) = self.peek_token(0) {
-            if token == &Token::RightParen {
-                break;
-            }
-
-            let expression = self.parse_expression()?;
-            args.push(expression);
-
-            let found_sep = self.consume_new_line_or_comma_if_exist();
-            if !found_sep {
-                break;
-            }
-        }
-
-        self.consume_right_paren()?; // consume ')'
-
-        let function_call = FunctionCall {
-            name,
-            // expression: Box::new(expression),
-            args,
-        };
-
-        Ok(function_call)
+        Ok((repetition, lazy))
     }
 
     fn parse_primary_expression(&mut self) -> Result<Expression, AnreError> {
-        // token ...
-        // ---------
-        // ^
-        // | current, None or Some(...)
-
         // primary expressions:
         // - literal
-        // - identifier (backreference)
-        // - assertion
         // - group
+        // - identifier (for backreference)
         // - function call
 
         let expression = match self.peek_token(0) {
             Some(token) => {
                 match token {
-                    Token::LeftParen => {
+                    Token::ParenthesisOpen => {
                         // group
                         self.parse_group()?
                     }
                     Token::Identifier(_)
-                        if self
-                            .expect_token_ignore_newline(1, &Token::LeftParen)
-                            .is_some() =>
+                        if self.peek_token_and_equals(1, &Token::ParenthesisOpen) =>
                     {
                         // function call
                         self.parse_function_call()?
                     }
-                    Token::Identifier(identifier_ref) => {
-                        // identifier
-                        let identifier = identifier_ref.to_owned();
+                    Token::Identifier(id)
+                        if id != "char_any"
+                            && PresetCharSetName::try_from(id.as_str()).is_err() =>
+                    {
+                        // backreference by name
+                        let name = id.to_owned();
                         self.next_token(); // consume identifier
-                        Expression::BackReference(BackReference::Name(identifier))
-                    }
-                    Token::AnchorAssertion(name_ref) => {
-                        // anchor assertion
-                        let name = anchor_assertion_name_from_str(name_ref, &self.last_range)?;
-                        self.next_token(); // consume assertion
-
-                        Expression::AnchorAssertion(name)
-                    }
-                    Token::BoundaryAssertion(name_ref) => {
-                        // boundary assertion
-                        let name = boundary_assertion_name_from_str(name_ref, &self.last_range)?;
-                        self.next_token(); // consume assertion
-
-                        Expression::BoundaryAssertion(name)
+                        Expression::BackReference(BackReference::Name(name))
                     }
                     _ => {
                         let literal = self.parse_literal()?;
@@ -633,122 +589,114 @@ impl Parser<'_> {
     }
 
     fn parse_group(&mut self) -> Result<Expression, AnreError> {
-        // "(" {expression} ")" ?
-        // ---                  -
-        // ^                    ^-- to here
-        // | current, validated
+        // ```diagram
+        // (expression, ...) ?
+        // -                 -
+        // ^                 ^__ to here
+        // |__ current, validated
+        // ```
 
         self.next_token(); // consume "("
-        self.consume_new_line_if_exist(); // consume trailing new-line
-
         let mut expressions: Vec<Expression> = vec![];
 
         while let Some(token) = self.peek_token(0) {
-            if token == &Token::RightParen {
+            if token == &Token::ParenthesisClose {
                 break;
             }
 
             let expression = self.parse_expression()?;
             expressions.push(expression);
-
-            let found_sep = self.consume_new_line_or_comma_if_exist();
-            if !found_sep {
-                break;
-            }
         }
 
-        self.consume_right_paren()?; // consume ")"
+        self.consume_closing_parenthesis()?; // consume ")"
 
-        // escape the group if it contains only one element
+        // Eliminate redundant group if it contains only one expression.
+        // This also helps to escape from nested groups that are usually
+        // introduced by macros.
+        //
+        // e.g.
+        //
+        // - `(foo)` -> `foo`
+        // - `((foo, bar))` -> `(foo, bar)`
         if expressions.len() == 1 {
-            let first = expressions.remove(0);
-            Ok(first)
+            let expression = expressions.remove(0);
+            Ok(expression)
         } else {
             Ok(Expression::Group(expressions))
         }
     }
 
     fn parse_function_call(&mut self) -> Result<Expression, AnreError> {
-        // identifier "(" expression ["," args... ] ")" ?
-        // ---------- ---                               -
-        // ^          ^__ validated                     ^__ to here
-        // | current, validated
+        // ```diagram
+        // identifier ( args... ) ?
+        // ---------- -           -
+        // ^          ^           ^__ to here
+        // |          |__ validated
+        // |__ current, validated
+        // ```
 
-        // newline rules:
-        // identifier newline? '(' newline? expression newline/comma ... ')'
+        let identifier = self.consume_identifier()?;
 
-        let name_string = self.consume_identifier()?;
-        self.consume_new_line_if_exist();
+        let name = identifier.as_str().try_into().map_err(|_| {
+            AnreError::MessageWithRange(
+                format!("Unsupported function \"{}\"", identifier),
+                self.last_range,
+            )
+        })?;
 
-        let name = function_name_from_str(&name_string, &self.last_range)?;
-
-        self.consume_left_paren()?; // consume '('
-        self.consume_new_line_if_exist(); // consume trailing new-line
+        self.consume_opening_parenthesis()?; // consume '('
 
         let mut args = vec![];
 
         while let Some(token) = self.peek_token(0) {
-            if token == &Token::RightParen {
+            if token == &Token::ParenthesisClose {
                 break;
             }
 
-            let expression = self.parse_expression()?;
-            args.push(expression);
-
-            let found_sep = self.consume_new_line_or_comma_if_exist();
-            if !found_sep {
-                break;
+            if matches!(self.peek_token(0), Some(Token::Number(_))) {
+                let number = self.consume_number()?;
+                args.push(FunctionArgument::Number(number));
+            } else {
+                let expression = self.parse_expression()?;
+                args.push(FunctionArgument::Expression(expression));
             }
         }
 
-        self.consume_right_paren()?; // consume ')'
+        self.consume_closing_parenthesis()?; // consume ')'
 
-        let function_call = FunctionCall {
-            name,
-            // expression: Box::new(expression),
-            args,
-        };
+        let function_call = FunctionCall { name, args };
 
         Ok(Expression::FunctionCall(Box::new(function_call)))
     }
 
     fn parse_literal(&mut self) -> Result<Literal, AnreError> {
-        // token ...
-        // -----
-        // ^
-        // | current, Some(...)
-
         // literals:
-        //   - char
-        //   - string
-        //   - charset
-        //   - preset_charset
-        //   - special char
+        // - `char_any`
+        // - char
+        // - string
+        // - charset
+        // - preset_charset
 
         match self.peek_token(0) {
             Some(token) => {
                 let literal = match token {
-                    Token::LeftBracket => {
-                        let elements = self.parse_charset()?;
+                    Token::BracketOpen => {
+                        // charset
+                        let elements = self.parse_charset_elements()?;
                         Literal::CharSet(CharSet {
                             negative: false,
                             elements,
                         })
                     }
-                    Token::Exclamation if self.expect_token(1, &Token::LeftBracket) => {
+                    Token::Exclamation if self.peek_token_and_equals(1, &Token::BracketOpen) => {
                         // negative charset
                         self.next_token();
 
-                        let elements = self.parse_charset()?;
+                        let elements = self.parse_charset_elements()?;
                         Literal::CharSet(CharSet {
                             negative: true,
                             elements,
                         })
-                    }
-                    Token::Number(number_ref) => {
-                        let number = *number_ref;
-                        self.next_token(); // consume number
-                        Literal::Number(number)
                     }
                     Token::Char(char_ref) => {
                         let c = *char_ref;
@@ -760,22 +708,18 @@ impl Parser<'_> {
                         self.next_token(); // consume string
                         Literal::String(string)
                     }
-                    Token::PresetCharSet(preset_charset_name_ref) => {
-                        let preset_charset_name = preset_charset_name_from_str(
-                            preset_charset_name_ref,
-                            &self.last_range,
-                        )?;
+                    Token::Identifier(id) if id == "char_any" => {
+                        self.next_token(); // consume "char_any"
+                        Literal::AnyChar
+                    }
+                    Token::Identifier(preset_charset_name_ref) => {
+                        let preset_charset_name =
+                            PresetCharSetName::try_from(preset_charset_name_ref.as_str()).unwrap();
                         self.next_token(); // consume preset charset
                         Literal::PresetCharSet(preset_charset_name)
                     }
-                    Token::Special(special_char_name_ref) => {
-                        let special_char_name =
-                            special_char_name_from_str(special_char_name_ref, &self.last_range)?;
-                        self.next_token(); // consume special
-                        Literal::Special(special_char_name)
-                    }
                     _ => {
-                        return Err(AnreError::MessageWithLocation(
+                        return Err(AnreError::MessageWithRange(
                             "Expect a literal.".to_owned(),
                             self.last_range,
                         ));
@@ -790,230 +734,85 @@ impl Parser<'_> {
         }
     }
 
-    fn parse_charset(&mut self) -> Result<Vec<CharSetElement>, AnreError> {
-        // "[" {char | char_range | preset_charset | char_set} "]" ?
-        // ---                                                   -
-        // ^                                                     ^__ to here
-        // | current, validated
+    fn parse_charset_elements(&mut self) -> Result<Vec<CharSetElement>, AnreError> {
+        // ```diagram
+        // [ {char | char_range | preset_charset | char_set} ] ?
+        // -                                                   -
+        // ^                                                   ^__ to here
+        // |__ current, validated
+        // ```
 
         self.next_token(); // consume '['
-        self.consume_new_line_if_exist(); // consume trailing new-line
 
         let mut elements = vec![];
         while let Some(token) = self.peek_token(0) {
-            if token == &Token::RightBracket {
+            if token == &Token::BracketClose {
                 break;
             }
 
-            match token {
-                Token::Char(_) if self.expect_token_ignore_newline(1, &Token::Range).is_some() => {
-                    // char range
-                    let char_range = self.parse_char_range()?;
-                    elements.push(CharSetElement::CharRange(char_range));
-                }
-                Token::Char(c_ref) => {
+            let start_range = *self.peek_range(0).unwrap();
+            let expression = self.parse_expression()?;
+
+            match expression {
+                Expression::Literal(Literal::Char(c)) => {
                     // char
-                    let c = *c_ref;
-                    self.next_token(); // consume char
-                    elements.push(CharSetElement::Char(c));
+                    if self.peek_token_and_equals(0, &Token::Range) {
+                        // char range, e.g. `['a'..'z']`
+                        self.next_token(); // consume '..'
+
+                        if self.peek_token(0).is_none() {
+                            return Err(AnreError::UnexpectedEndOfDocument(
+                                "Expect a char literal after '..' in char range.".to_owned(),
+                            ));
+                        }
+
+                        let end_range = *self.peek_range(0).unwrap();
+                        let end_expression = self.parse_expression()?;
+
+                        if let Expression::Literal(Literal::Char(end_char)) = end_expression {
+                            let char_range = CharRange {
+                                start: c,
+                                end_inclusive: end_char,
+                            };
+                            elements.push(CharSetElement::CharRange(char_range));
+                        } else {
+                            let range = Range::merge(&end_range, &self.last_range);
+                            return Err(AnreError::MessageWithRange(
+                                "Expect a char literal.".to_owned(),
+                                range,
+                            ));
+                        }
+                    } else {
+                        elements.push(CharSetElement::Char(c));
+                    }
                 }
-                Token::PresetCharSet(preset_charset_name_ref) => {
+                Expression::Literal(Literal::PresetCharSet(preset_charset_name)) => {
                     // preset char set
-                    let preset_charset_name =
-                        preset_charset_name_from_str(preset_charset_name_ref, &self.last_range)?;
-                    self.next_token(); // consume preset charset
                     elements.push(CharSetElement::PresetCharSet(preset_charset_name));
                 }
-                Token::LeftBracket => {
-                    // custom char set
-                    // such as ['a'..'f']
-                    let custom_charset_elements = self.parse_charset()?;
-                    let custom_charset = CharSet {
-                        negative: false,
-                        elements: custom_charset_elements,
-                    };
-                    elements.push(CharSetElement::CharSet(Box::new(custom_charset)));
+                Expression::Literal(Literal::CharSet(char_set)) => {
+                    // nested char set, e.g. `['_', ['a'..'f'], ['0'..'9']]`
+                    elements.push(CharSetElement::CharSet(Box::new(char_set)));
                 }
                 _ => {
-                    return Err(AnreError::MessageWithLocation(
-                        "Unexpected char set element.".to_owned(),
-                        self.last_range,
+                    let range = Range::merge(&start_range, &self.last_range);
+                    return Err(AnreError::MessageWithRange(
+                        "Unsupported char set element.".to_owned(),
+                        range,
                     ));
                 }
             }
-
-            let found_sep = self.consume_new_line_or_comma_if_exist();
-            if !found_sep {
-                break;
-            }
         }
 
-        self.consume_right_bracket()?; // consume ']'
-
+        self.consume_closing_bracket()?; // consume ']'
         Ok(elements)
     }
-
-    fn parse_char_range(&mut self) -> Result<CharRange, AnreError> {
-        // 'c' [new-line] '..' 'c' ?
-        // ---  --------  ----     -
-        // ^    ^         ^        ^__ to here
-        // |    | vali..  | validated
-        // | current, validated
-
-        let char_start = self.consume_char()?; // consume start char
-        self.consume_new_line_if_exist();
-
-        self.next_token(); // consume '..'
-        self.consume_new_line_if_exist();
-
-        let char_end = self.consume_char()?; // consume end char
-
-        Ok(CharRange {
-            start: char_start,
-            end_included: char_end,
-        })
-    }
 }
 
-enum NotationQuantifier {
+enum Repetition {
     Repeat(usize),
+    RepeatFrom(usize),
     RepeatRange(usize, usize),
-    AtLeast(usize),
-}
-
-fn anchor_assertion_name_from_str(
-    name_str: &str,
-    range: &Location,
-) -> Result<AnchorAssertionName, AnreError> {
-    let name = match name_str {
-        "start" => AnchorAssertionName::Start,
-        "end" => AnchorAssertionName::End,
-
-        // Unexpect
-        _ => {
-            return Err(AnreError::MessageWithLocation(
-                format!("Unexpect anchor assertion name: \"{}\"", name_str),
-                range.to_owned(),
-            ))
-        }
-    };
-
-    Ok(name)
-}
-
-fn boundary_assertion_name_from_str(
-    name_str: &str,
-    range: &Location,
-) -> Result<BoundaryAssertionName, AnreError> {
-    let name = match name_str {
-        "is_bound" => BoundaryAssertionName::IsBound,
-        "is_not_bound" => BoundaryAssertionName::IsNotBound,
-
-        // Unexpect
-        _ => {
-            return Err(AnreError::MessageWithLocation(
-                format!("Unexpect boundary assertion name: \"{}\"", name_str),
-                range.to_owned(),
-            ))
-        }
-    };
-
-    Ok(name)
-}
-
-fn special_char_name_from_str(
-    name_str: &str,
-    range: &Location,
-) -> Result<SpecialCharName, AnreError> {
-    let name = match name_str {
-        "char_any" => SpecialCharName::CharAny,
-
-        // Unexpect
-        _ => {
-            return Err(AnreError::MessageWithLocation(
-                format!("Unexpect special character name: \"{}\"", name_str),
-                range.to_owned(),
-            ))
-        }
-    };
-
-    Ok(name)
-}
-
-fn preset_charset_name_from_str(
-    name_str: &str,
-    range: &Location,
-) -> Result<PresetCharSetName, AnreError> {
-    let name = match name_str {
-        "char_word" => PresetCharSetName::CharWord,
-        "char_not_word" => PresetCharSetName::CharNotWord,
-        "char_space" => PresetCharSetName::CharSpace,
-        "char_not_space" => PresetCharSetName::CharNotSpace,
-        "char_digit" => PresetCharSetName::CharDigit,
-        "char_not_digit" => PresetCharSetName::CharNotDigit,
-        "char_hex" => PresetCharSetName::CharHex,
-
-        // Unexpect
-        _ => {
-            return Err(AnreError::MessageWithLocation(
-                format!("Unexpect preset charset name: \"{}\"", name_str),
-                range.to_owned(),
-            ))
-        }
-    };
-
-    Ok(name)
-}
-
-fn function_name_from_str(name_str: &str, range: &Location) -> Result<FunctionName, AnreError> {
-    let name = match name_str {
-        // Greedy Quantifier
-        "optional" => FunctionName::Optional,
-        "one_or_more" => FunctionName::OneOrMore,
-        "zero_or_more" => FunctionName::ZeroOrMore,
-        "repeat" => FunctionName::Repeat,
-        "repeat_range" => FunctionName::RepeatRange,
-        "at_least" => FunctionName::AtLeast,
-
-        // Lazy Quantifier
-        "optional_lazy" => FunctionName::OptionalLazy,
-        "one_or_more_lazy" => FunctionName::OneOrMoreLazy,
-        "zero_or_more_lazy" => FunctionName::ZeroOrMoreLazy,
-        "repeat_range_lazy" => FunctionName::RepeatRangeLazy,
-        "at_least_lazy" => FunctionName::AtLeastLazy,
-
-        // Assertions
-        "is_before" => FunctionName::IsBefore, // lookahead
-        "is_after" => FunctionName::IsAfter,   // lookbehind
-        "is_not_before" => FunctionName::IsNotBefore, // negative lookahead
-        "is_not_after" => FunctionName::IsNotAfter, // negative lookbehind
-
-        // Capture
-        "name" => FunctionName::Name,
-        "index" => FunctionName::Index,
-
-        // Unexpect
-        _ => {
-            return Err(AnreError::MessageWithLocation(
-                format!("Unexpect function name: \"{}\"", name_str),
-                range.to_owned(),
-            ))
-        }
-    };
-
-    Ok(name)
-}
-
-pub fn parse_from_str(s: &str) -> Result<Program, AnreError> {
-    let tokens = lex_from_str(s)?;
-    let clean_tokens = clean(tokens);
-    let normalized_tokens = normalize(clean_tokens);
-    let expanded_tokens = expand(normalized_tokens)?;
-    let expanded_and_normalized_tokens = normalize(expanded_tokens);
-    let mut token_iter = expanded_and_normalized_tokens.into_iter();
-    let mut peekable_token_iter = PeekableIter::new(&mut token_iter, PARSER_PEEK_TOKEN_MAX_COUNT);
-    let mut parser = Parser::new(&mut peekable_token_iter);
-    parser.parse_program()
 }
 
 #[cfg(test)]
@@ -1025,16 +824,16 @@ mod tests {
         ast::{
             CharRange, CharSet, CharSetElement, Expression, Literal, PresetCharSetName, Program,
         },
-        AnreError,
+        error::AnreError,
     };
 
     use super::parse_from_str;
 
     #[test]
-    fn test_parse_literal_simple() {
+    fn test_parse_literal() {
         let program = parse_from_str(
             r#"
-'a', "foo", char_word
+(char_any, 'a', "foo")
     "#,
         )
         .unwrap();
@@ -1042,15 +841,50 @@ mod tests {
         assert_eq!(
             program,
             Program {
-                expressions: vec![
+                expression: Expression::Group(vec![
+                    Expression::Literal(Literal::AnyChar),
                     Expression::Literal(Literal::Char('a')),
                     Expression::Literal(Literal::String("foo".to_owned())),
-                    Expression::Literal(Literal::PresetCharSet(PresetCharSetName::CharWord)),
-                ]
+                ])
             }
         );
 
-        assert_eq!(program.to_string(), r#"'a', "foo", char_word"#);
+        assert_eq!(program.to_string(), r#"(char_any, 'a', "foo")"#);
+    }
+
+    #[test]
+    fn test_parse_literal_preset_charset() {
+        let program = parse_from_str(
+            r#"
+(
+    char_word
+    char_not_word
+    char_digit
+    char_not_digit
+    char_space
+    char_not_space
+)"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            program,
+            Program {
+                expression: Expression::Group(vec![
+                    Expression::Literal(Literal::PresetCharSet(PresetCharSetName::CharWord)),
+                    Expression::Literal(Literal::PresetCharSet(PresetCharSetName::CharNotWord)),
+                    Expression::Literal(Literal::PresetCharSet(PresetCharSetName::CharDigit)),
+                    Expression::Literal(Literal::PresetCharSet(PresetCharSetName::CharNotDigit)),
+                    Expression::Literal(Literal::PresetCharSet(PresetCharSetName::CharSpace)),
+                    Expression::Literal(Literal::PresetCharSet(PresetCharSetName::CharNotSpace)),
+                ])
+            }
+        );
+
+        assert_eq!(
+            program.to_string(),
+            r#"(char_word, char_not_word, char_digit, char_not_digit, char_space, char_not_space)"#
+        );
     }
 
     #[test]
@@ -1065,23 +899,23 @@ mod tests {
         assert_eq!(
             program,
             Program {
-                expressions: vec![Expression::Literal(Literal::CharSet(CharSet {
+                expression: Expression::Literal(Literal::CharSet(CharSet {
                     negative: false,
                     elements: vec![
                         CharSetElement::Char('a'),
                         CharSetElement::CharRange(CharRange {
                             start: '0',
-                            end_included: '9'
+                            end_inclusive: '9'
                         }),
                         CharSetElement::PresetCharSet(PresetCharSetName::CharWord),
                     ]
-                })),]
+                }))
             }
         );
 
         assert_eq!(program.to_string(), r#"['a', '0'..'9', char_word]"#);
 
-        // negative
+        // negative charset
         assert_eq!(
             parse_from_str(
                 r#"
@@ -1093,7 +927,7 @@ mod tests {
             r#"!['a'..'z', char_space]"#
         );
 
-        // nested
+        // nested charset
         assert_eq!(
             parse_from_str(
                 r#"
@@ -1104,95 +938,52 @@ mod tests {
             .to_string(),
             r#"['_', ['a'..'f'], ['0'..'9']]"#
         );
-
-        // multiline
-        assert_eq!(
-            parse_from_str(
-                r#"
-[
-    'a'
-    '0'
-    ..
-    '9'
-    char_word
-]"#,
-            )
-            .unwrap()
-            .to_string(),
-            r#"['a', '0'..'9', char_word]"#
-        );
-
-        // multiline with comma
-        assert_eq!(
-            parse_from_str(
-                r#"
-[
-    'a',
-    '0'
-    ..
-    '9',
-    char_word,
-]"#,
-            )
-            .unwrap()
-            .to_string(),
-            r#"['a', '0'..'9', char_word]"#
-        );
     }
 
     #[test]
-    fn test_parse_expression_function_call() {
+    fn test_parse_function_call() {
         assert_eq!(
             parse_from_str(
                 r#"
-optional('a')
-one_or_more('b')
-zero_or_more_lazy('c')
-name("xyz", "prefix")
+(
+    optional('a')
+    one_or_more('b')
+    zero_or_more_lazy('c')
+)
     "#,
             )
             .unwrap()
             .to_string(),
-            r#"optional('a')
-one_or_more('b')
-zero_or_more_lazy('c')
-name("xyz", "prefix")"#
+            r#"(optional('a'), one_or_more('b'), zero_or_more_lazy('c'))"#
         );
 
-        // test multiline args
+        // multiple args
         assert_eq!(
             parse_from_str(
                 r#"
-repeat(
-    'a'
-    3
-)
-repeat_range(
-    'b'
-    5
-    7
-)
-at_least('c'
-    11)
-    "#,
-            )
-            .unwrap()
-            .to_string(),
-            r#"repeat('a', 3)
-repeat_range('b', 5, 7)
-at_least('c', 11)"#
-        );
-
-        // test expressions as args
-        assert_eq!(
-            parse_from_str(
-                r#"
-is_after("bar", "foo" || 'f'{3})
+is_after("bar", "foo")
                 "#,
             )
             .unwrap()
             .to_string(),
-            r#"is_after("bar", "foo" || repeat('f', 3))"#
+            r#"is_after("bar", "foo")"#
+        );
+
+        // numeric args
+        assert_eq!(
+            parse_from_str(
+                r#"
+(
+    repeat('a' 3)
+    repeat_range('b', 5, 7)
+    repeat_from(
+    'c' 11)
+)
+    "#,
+            )
+            .unwrap()
+            .to_string(),
+            r#"(repeat('a', 3), repeat_range('b', 5, 7), repeat_from('c', 11))"#
         );
 
         // nested
@@ -1202,18 +993,59 @@ is_after("bar", "foo" || 'f'{3})
                 .to_string(),
             r#"optional(one_or_more('a'))"#
         );
+    }
 
-        // nested + mulitline
+    #[test]
+    fn test_parse_method_call() {
         assert_eq!(
             parse_from_str(
                 r#"
-optional
 (
-one_or_more
-(
-'a'
+    'a'.optional()
+    'b'.one_or_more()
+    'c'.zero_or_more_lazy()
 )
-)"#
+    "#,
+            )
+            .unwrap()
+            .to_string(),
+            r#"(optional('a'), one_or_more('b'), zero_or_more_lazy('c'))"#
+        );
+
+        // multiple args
+        assert_eq!(
+            parse_from_str(
+                r#"
+"bar".is_after("foo")
+    "#,
+            )
+            .unwrap()
+            .to_string(),
+            r#"is_after("bar", "foo")"#
+        );
+
+        // numeric args
+        assert_eq!(
+            parse_from_str(
+                r#"
+(
+    'a'.repeat(3)
+    'b'.repeat_range(5, 7)
+    'c'.repeat_from(11)
+)
+    "#,
+            )
+            .unwrap()
+            .to_string(),
+            r#"(repeat('a', 3), repeat_range('b', 5, 7), repeat_from('c', 11))"#
+        );
+
+        // chain method call
+        assert_eq!(
+            parse_from_str(
+                r#"
+'a'.one_or_more().optional()
+    "#
             )
             .unwrap()
             .to_string(),
@@ -1222,127 +1054,40 @@ one_or_more
     }
 
     #[test]
-    fn test_parse_expression_function_call_rear() {
+    fn test_parse_quantifier() {
         assert_eq!(
             parse_from_str(
                 r#"
-'a'.optional()
-'b'.one_or_more()
-'c'.zero_or_more_lazy()
-"xyz".name("prefix")
-    "#,
-            )
-            .unwrap()
-            .to_string(),
-            r#"optional('a')
-one_or_more('b')
-zero_or_more_lazy('c')
-name("xyz", "prefix")"#
-        );
-
-        // test multiline args
-        assert_eq!(
-            parse_from_str(
-                r#"
-'a'.repeat(3)
-'b'.repeat_range(
-    5
-    7
-)
-'c'.at_least(11
+(
+    'a'?
+    'b'+
+    'c'*
+    'x'??
+    'y'+?
+    'z'*?
 )
     "#,
             )
             .unwrap()
             .to_string(),
-            r#"repeat('a', 3)
-repeat_range('b', 5, 7)
-at_least('c', 11)"#
+            r#"(optional('a'), one_or_more('b'), zero_or_more('c'), optional_lazy('x'), one_or_more_lazy('y'), zero_or_more_lazy('z'))"#
         );
 
-        // test expressions as args
         assert_eq!(
             parse_from_str(
                 r#"
-"bar".is_after("foo" || 'f'{3})
+(
+    'a'{3}
+    'b'{5..7}
+    'c'{11..}
+    'y'{5..7}?
+    'z'{11..}?
+)
     "#,
             )
             .unwrap()
             .to_string(),
-            r#"is_after("bar", "foo" || repeat('f', 3))"#
-        );
-
-        // test chaining
-        assert_eq!(
-            parse_from_str(
-                r#"
-['a'..'z'].repeat_range(2, 7).is_before("ing" || "ed")
-    "#
-            )
-            .unwrap()
-            .to_string(),
-            r#"is_before(repeat_range(['a'..'z'], 2, 7), "ing" || "ed")"#
-        );
-
-        // test multiline
-        assert_eq!(
-            parse_from_str(
-                r#"
-['a'..'z']
-.
-repeat_range
-(2, 7)
-.
-is_before
-("ing" || "ed")
-            "#,
-            )
-            .unwrap()
-            .to_string(),
-            r#"is_before(repeat_range(['a'..'z'], 2, 7), "ing" || "ed")"#
-        );
-    }
-
-    #[test]
-    fn test_parse_expression_notations() {
-        assert_eq!(
-            parse_from_str(
-                r#"
-'a'?
-'b'+
-'c'*
-'x'??
-'y'+?
-'z'*?
-    "#,
-            )
-            .unwrap()
-            .to_string(),
-            r#"optional('a')
-one_or_more('b')
-zero_or_more('c')
-optional_lazy('x')
-one_or_more_lazy('y')
-zero_or_more_lazy('z')"#
-        );
-
-        assert_eq!(
-            parse_from_str(
-                r#"
-'a'{3}
-'b'{5,7}
-'c'{11,}
-'y'{5,7}?
-'z'{11,}?
-    "#,
-            )
-            .unwrap()
-            .to_string(),
-            r#"repeat('a', 3)
-repeat_range('b', 5, 7)
-at_least('c', 11)
-repeat_range_lazy('y', 5, 7)
-at_least_lazy('z', 11)"#
+            r#"(repeat('a', 3), repeat_range('b', 5, 7), repeat_from('c', 11), repeat_range_lazy('y', 5, 7), repeat_from_lazy('z', 11))"#
         );
 
         // err: '{m}?' is not allowed
@@ -1352,44 +1097,132 @@ at_least_lazy('z', 11)"#
 'a'{3}?
 "#,
             ),
-            Err(AnreError::MessageWithLocation(_, _))
+            Err(AnreError::MessageWithRange(_, _))
         ));
 
         // err: '{m,m}?' is not allowed
         assert!(matches!(
             parse_from_str(
                 r#"
-'a'{3,3}?
+'a'{3..3}?
 "#,
             ),
-            Err(AnreError::MessageWithLocation(_, _))
+            Err(AnreError::MessageWithRange(_, _))
         ));
     }
 
     #[test]
-    fn test_parse_expression_logic_or() {
+    fn test_parse_index_capture() {
+        assert_eq!(
+            parse_from_str(
+                r#"
+#'a'
+    "#,
+            )
+            .unwrap()
+            .to_string(),
+            r#"#'a'"#
+        );
+
+        assert_eq!(
+            parse_from_str(
+                r#"
+#('a', char_digit)
+    "#,
+            )
+            .unwrap()
+            .to_string(),
+            r#"#('a', char_digit)"#
+        );
+    }
+
+    #[test]
+    fn test_parse_name_capture() {
+        assert_eq!(
+            parse_from_str(
+                r#"
+'a' as x
+    "#,
+            )
+            .unwrap()
+            .to_string(),
+            r#"'a' as x"#
+        );
+
+        assert_eq!(
+            parse_from_str(
+                r#"
+('a', char_digit) as x
+    "#,
+            )
+            .unwrap()
+            .to_string(),
+            r#"('a', char_digit) as x"#
+        );
+
+        // name capture implies index capture
+        assert_eq!(
+            parse_from_str(
+                r#"
+#'a' as x
+    "#,
+            )
+            .unwrap()
+            .to_string(),
+            r#"'a' as x"#
+        );
+
+        // name capture implies index capture, another case
+        assert_eq!(
+            parse_from_str(
+                r#"
+#('a' as x)
+    "#,
+            )
+            .unwrap()
+            .to_string(),
+            r#"'a' as x"#
+        );
+    }
+
+    #[test]
+    fn test_parse_backreference() {
+        assert_eq!(
+            parse_from_str(
+                r#"
+(char_digit as a, 'x', a)
+    "#,
+            )
+            .unwrap()
+            .to_string(),
+            r#"(char_digit as a, 'x', a)"#
+        );
+    }
+
+    #[test]
+    fn test_parse_logic_or() {
         {
             let program = parse_from_str(
                 r#"
 'a' || 'b'
-"#,
+    "#,
             )
             .unwrap();
 
             assert_eq!(
                 program,
                 Program {
-                    expressions: vec![Expression::Or(
+                    expression: Expression::Or(
                         Box::new(Expression::Literal(Literal::Char('a'))),
                         Box::new(Expression::Literal(Literal::Char('b'))),
-                    )]
+                    )
                 }
             );
 
             assert_eq!(program.to_string(), r#"'a' || 'b'"#);
         }
 
-        // more than 2 operands
+        // two operands
         {
             let program = parse_from_str(
                 r#"
@@ -1401,85 +1234,18 @@ at_least_lazy('z', 11)"#
             assert_eq!(
                 program,
                 Program {
-                    expressions: vec![Expression::Or(
+                    expression: Expression::Or(
                         Box::new(Expression::Literal(Literal::Char('a'))),
                         Box::new(Expression::Or(
                             Box::new(Expression::Literal(Literal::Char('b'))),
                             Box::new(Expression::Literal(Literal::Char('c'))),
                         )),
-                    )]
+                    )
                 }
             );
 
             assert_eq!(program.to_string(), r#"'a' || ('b' || 'c')"#);
         }
-
-        // test expressions as operands
-        assert_eq!(
-            parse_from_str(
-                r#"
-char_digit.one_or_more() || [char_word, '-']+
-"#,
-            )
-            .unwrap()
-            .to_string(),
-            r#"one_or_more(char_digit) || one_or_more([char_word, '-'])"#
-        );
-
-        // test multiline
-        {
-            let program = parse_from_str(
-                r#"
-'a'
-||
-'b'
-"#,
-            )
-            .unwrap();
-
-            assert_eq!(
-                program,
-                Program {
-                    expressions: vec![Expression::Or(
-                        Box::new(Expression::Literal(Literal::Char('a'))),
-                        Box::new(Expression::Literal(Literal::Char('b'))),
-                    )]
-                }
-            );
-
-            assert_eq!(program.to_string(), r#"'a' || 'b'"#);
-        }
-    }
-
-    #[test]
-    fn test_parse_expression_group() {
-        assert_eq!(
-            parse_from_str(
-                r#"
-("foo", char_digit)
-('b', ("bar", char_digit))
-end
-"#,
-            )
-            .unwrap()
-            .to_string(),
-            r#"("foo", char_digit), ('b', ("bar", char_digit)), end"#
-        );
-
-        // function call + group
-        assert_eq!(
-            parse_from_str(
-                r#"
-repeat(("foo", char_digit), 3)
-('b', repeat("bar", 5))
-end
-"#,
-            )
-            .unwrap()
-            .to_string(),
-            r#"repeat(("foo", char_digit), 3)
-('b', repeat("bar", 5)), end"#
-        );
 
         // logic or + group
         assert_eq!(
@@ -1517,36 +1283,62 @@ end
             r#"('a', char_word) || ('b', char_digit)"#
         );
 
-        // extract elements from a group if the group
-        // contains only one element and the element's type
-        // is 'Group'
+        // expressions as operands
         assert_eq!(
             parse_from_str(
                 r#"
-((('a', char_digit, 'b')))
+char_digit.one_or_more() || [char_word, '-']+
 "#,
             )
             .unwrap()
             .to_string(),
-            r#"'a', char_digit, 'b'"#
+            r#"one_or_more(char_digit) || one_or_more([char_word, '-'])"#
+        );
+    }
+
+    #[test]
+    fn test_parse_group() {
+        assert_eq!(
+            parse_from_str(
+                r#"
+(
+    ("foo", char_digit)
+    ('b', ("bar", char_digit))
+    is_end()
+)
+"#,
+            )
+            .unwrap()
+            .to_string(),
+            r#"(("foo", char_digit), ('b', ("bar", char_digit)), is_end())"#
         );
 
-        // multiline
+        // function call + group
         assert_eq!(
             parse_from_str(
                 r#"
 (
-'b'
-(
-"bar"
-char_digit
-)
+    repeat(("foo", char_digit), 3)
+    ('b', repeat("bar", 5))
+    is_end()
 )
 "#,
             )
             .unwrap()
             .to_string(),
-            r#"'b', ("bar", char_digit)"#
+            r#"(repeat(("foo", char_digit), 3), ('b', repeat("bar", 5)), is_end())"#
+        );
+
+        // escape nested group
+        assert_eq!(
+            parse_from_str(
+                r#"
+(((('a', char_digit, 'b'))))
+"#,
+            )
+            .unwrap()
+            .to_string(),
+            r#"('a', char_digit, 'b')"#
         );
     }
 
@@ -1555,28 +1347,30 @@ char_digit
         assert_eq!(
             parse_from_str(
                 r#"
-define(a, "abc")
-start, a, end
+define A ("abc")
+
+(is_start(), A, is_end())
 "#,
             )
             .unwrap()
             .to_string(),
-            r#"start, "abc", end"#
+            r#"(is_start(), "abc", is_end())"#
         );
 
         assert_eq!(
             parse_from_str(
                 r#"
-define(a, 'a')
-define(b, (a, 'b'))
-define(c, ([a, 'c'], optional(b), b.one_or_more()))
-define(d, (a || b || 'd'))
-start, a, b, c, d, end
+define A ('a')
+define B (A, 'b')
+define C ([A, 'c'], optional(B), B.one_or_more())
+define D (A || B || 'd')
+
+(is_start(), A, B, C, D, is_end())
 "#,
             )
             .unwrap()
             .to_string(),
-            r#"start, 'a', ('a', 'b'), (['a', 'c'], optional(('a', 'b')), one_or_more(('a', 'b'))), 'a' || (('a', 'b') || 'd'), end"#
+            r#"(is_start(), 'a', ('a', 'b'), (['a', 'c'], optional(('a', 'b')), one_or_more(('a', 'b'))), 'a' || (('a', 'b') || 'd'), is_end())"#
         );
     }
 
@@ -1587,7 +1381,11 @@ start, a, b, c, d, end
                 r#"
 /**
  * Decimal Numbers Regular Expression
+ * e.g.
+ * - "0"
+ * - "123"
  */
+
 char_digit.one_or_more()
 "#,
             )
@@ -1601,19 +1399,25 @@ char_digit.one_or_more()
                 r#"
 /**
  * Hex Numbers Regular Expression
+ * e.g.
+ * - "0x0"
+ * - "0x123"
+ * - "0xabc"
+ * - "0xDEADBEEF"
  */
 
-// The prefix "0x"
-"0x"
+(
+    // The prefix "0x"
+    "0x"
 
-// The hex digits
-['0'..'9', 'a'..'f'].one_or_more()
+    // The hex digits
+    ['0'..'9', 'a'..'f', 'A'..'F'].one_or_more()
+)
 "#,
             )
             .unwrap()
             .to_string(),
-            "\"0x\"
-one_or_more(['0'..'9', 'a'..'f'])"
+            "(\"0x\", one_or_more(['0'..'9', 'a'..'f', 'A'..'F']))"
         );
 
         assert_eq!(
@@ -1622,68 +1426,78 @@ one_or_more(['0'..'9', 'a'..'f'])"
 /**
  * Email Address Validated Regular Expression
  *
+ * e.g.
+ * - "abc@example.domain"
+ * - "john-smith.new+mailbox-department@example.com"
+ *
  * Ref:
  * https://en.wikipedia.org/wiki/Email_address
  */
 
-// Asserts that the current is the first character
-start
-
-// User name
-[char_word, '.', '-'].one_or_more()
-
-// Sub-address
-('+', [char_word, '-'].one_or_more()).optional()
-
-// The separator
-'@'
-
-// Domain name
 (
-    ['a'..'z', 'A'..'Z', '0'..'9', '-'].one_or_more()
-    '.'
-).one_or_more()
+    // Asserts that the current is the first character
+    is_start()
 
-// Top-level domain
-['a'..'z'].at_least(2)
+    // User name
+    [char_word, '.', '-'].one_or_more()
 
-// Asserts that the current is the last character
-end
+    // Sub-address
+    ('+', [char_word, '-'].one_or_more()).optional()
+
+    // The separator
+    '@'
+
+    // Domain name
+    (
+        ['a'..'z', 'A'..'Z', '0'..'9', '-'].one_or_more()
+        '.'
+    ).one_or_more()
+
+    // Top-level domain
+    ['a'..'z'].repeat_from(2)
+
+    // Asserts that the current is the last character
+    is_end()
+)
 "#,
             )
             .unwrap()
             .to_string(),
-            "start
-one_or_more([char_word, '.', '-'])
-optional(('+', one_or_more([char_word, '-'])))
-'@'
-one_or_more((one_or_more(['a'..'z', 'A'..'Z', '0'..'9', '-']), '.'))
-at_least(['a'..'z'], 2)
-end"
+            "(is_start(), \
+one_or_more([char_word, '.', '-']), \
+optional(('+', one_or_more([char_word, '-']))), \
+'@', \
+one_or_more((one_or_more(['a'..'z', 'A'..'Z', '0'..'9', '-']), '.')), \
+repeat_from(['a'..'z'], 2), \
+is_end())"
         );
 
-        assert_eq!(
-            parse_from_str(
-                r#"
+        let ipv4_regex = parse_from_str(
+            r#"
 /**
  * IPv4 Address Validated Regular Expression
  */
-define(num_25x, ("25", ['0'..'5']))
-define(num_2xx, ('2', ['0'..'4'], char_digit))
-define(num_1xx, ('1', char_digit, char_digit))
-define(num_xx, (['1'..'9'], char_digit))
-define(num_x, char_digit)
-define(ip_num, (num_25x || num_2xx || num_1xx || num_xx || num_x))
 
-start, (ip_num, '.').repeat(3), ip_num, end
+define num_25x ("25", ['0'..'5'])
+define num_2xx ('2', ['0'..'4'], char_digit)
+define num_1xx ('1', char_digit, char_digit)
+define num_xx (['1'..'9'], char_digit)
+define num_x (char_digit)
+define part (num_25x || num_2xx || num_1xx || num_xx || num_x)
+
+(is_start(), (part, '.').repeat(3), part, is_end())
 "#,
-            )
-            .unwrap()
-            .to_string(),
-            r#"start
-repeat((("25", ['0'..'5']) || (('2', ['0'..'4'], char_digit) || (('1', char_digit, char_digit) || ((['1'..'9'], char_digit) || char_digit))), '.'), 3)
-("25", ['0'..'5']) || (('2', ['0'..'4'], char_digit) || (('1', char_digit, char_digit) || ((['1'..'9'], char_digit) || char_digit))), end"#
+        )
+        .unwrap()
+        .to_string();
+
+        let part_str = r#"("25", ['0'..'5']) || (('2', ['0'..'4'], char_digit) || (('1', char_digit, char_digit) || ((['1'..'9'], char_digit) || char_digit)))"#;
+        let expected_ipv4_regex = format!(
+            "(is_start(), repeat(({}, '.'), 3), {}, is_end())",
+            part_str, part_str
         );
+
+        assert_eq!(ipv4_regex, expected_ipv4_regex);
 
         assert_eq!(
             parse_from_str(
@@ -1691,22 +1505,27 @@ repeat((("25", ['0'..'5']) || (('2', ['0'..'4'], char_digit) || (('1', char_digi
 /**
  * Simple HTML tag Regular Expression
  */
-'<'                                                     // opening tag
-name(char_word+, tag_name)                              // tag name
-(char_space, char_word+, '=', '"', char_word+, '"')*    // attributes
-'>'
-char_any+?                                              // text content
-'<', '/', tag_name, '>'                                 // closing tag
+
+(
+    '<'                                                                 // opening tag
+    char_word+ as tag_name                                              // tag name
+    (char_space, char_word+, ('=', '"', char_word+, '"').optional())*   // attributes
+    '>'
+    char_any+?                                                          // text content
+    '<', '/', tag_name, '>'                                             // closing tag
+)
 "#,
             )
             .unwrap()
             .to_string(),
-            r#"'<'
-name(one_or_more(char_word), tag_name)
-zero_or_more((char_space, one_or_more(char_word), '=', '"', one_or_more(char_word), '"'))
-'>'
-one_or_more_lazy(char_any)
-'<', '/', tag_name, '>'"#
+            "(\
+'<', \
+one_or_more(char_word) as tag_name, \
+zero_or_more((char_space, one_or_more(char_word), optional(('=', '\"', one_or_more(char_word), '\"')))), \
+'>', \
+one_or_more_lazy(char_any), \
+'<', '/', tag_name, '>'\
+)"
         );
     }
 }

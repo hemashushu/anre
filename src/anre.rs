@@ -4,11 +4,10 @@
 // the Mozilla Public License version 2.0 and additional exceptions.
 // For more details, see the LICENSE, LICENSE.additional, and CONTRIBUTING files.
 
-mod commentremover;
 mod lexer;
-mod macroexpander;
-mod normalizer;
+mod macro_expander;
 mod parser;
 mod token;
+mod printer;
 
-pub use parser::parse_from_str;
+// pub use parser::parse_from_str;

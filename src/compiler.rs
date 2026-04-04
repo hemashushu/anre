@@ -10,7 +10,7 @@ use crate::{
         CharSetElement, Expression, FunctionCall, FunctionName, Literal, PresetCharSetName,
         Program,
     },
-    object_file::{ObjectFile, Route},
+    object::{Object, Route},
     rulechecker::{get_match_length, MatchLength},
     transition::{
         add_char, add_preset_digit, add_preset_space, add_preset_word, add_range,
@@ -25,20 +25,20 @@ use crate::{
 };
 
 /// Compile from traditional regular expression.
-pub fn compile_from_regex(s: &str) -> Result<ObjectFile, AnreError> {
+pub fn compile_from_regex(s: &str) -> Result<Object, AnreError> {
     let program = crate::traditional::parse_from_str(s)?;
     compile(&program)
 }
 
 /// Compile from ANRE regular expression.
-pub fn compile_from_anre(s: &str) -> Result<ObjectFile, AnreError> {
+pub fn compile_from_anre(s: &str) -> Result<Object, AnreError> {
     let program = crate::anre::parse_from_str(s)?;
     compile(&program)
 }
 
 /// Compile from AST `Program`.
-pub fn compile(program: &Program) -> Result<ObjectFile, AnreError> {
-    let mut route = ObjectFile::new();
+pub fn compile(program: &Program) -> Result<Object, AnreError> {
+    let mut route = Object::new();
     let mut compiler = Compiler::new(program, &mut route);
     compiler.compile()?;
 
@@ -50,25 +50,25 @@ pub struct Compiler<'a> {
     program: &'a Program,
 
     // The compilation target
-    object_file: &'a mut ObjectFile,
+    object: &'a mut Object,
 
     // Index of the current route
     current_route_index: usize,
 }
 
 impl<'a> Compiler<'a> {
-    fn new(program: &'a Program, object_file: &'a mut ObjectFile) -> Self {
-        let current_route_index = object_file.create_route();
+    fn new(program: &'a Program, object: &'a mut Object) -> Self {
+        let current_route_index = object.create_route();
         Compiler {
             program,
-            object_file,
+            object,
             current_route_index,
         }
     }
 
     // Get a mutable reference to the current route in the object file.
     fn get_current_route_ref_mut(&mut self) -> &mut Route {
-        &mut self.object_file.routes[self.current_route_index]
+        &mut self.object.routes[self.current_route_index]
     }
 
     // Start the compilation process by emitting the main program.
@@ -95,7 +95,7 @@ impl<'a> Compiler<'a> {
         // \----------------Program Component-----------/
 
         // Create the first (index 0) capture group to represent the program itself.
-        let capture_group_index = self.object_file.create_capture_group(None);
+        let capture_group_index = self.object.create_capture_group(None);
 
         let expressions = &program.expressions;
 
@@ -365,7 +365,7 @@ impl<'a> Compiler<'a> {
                 | FunctionName::OneOrMoreLazy
                 | FunctionName::ZeroOrMoreLazy
                 | FunctionName::RepeatRangeLazy
-                | FunctionName::AtLeastLazy
+                | FunctionName::RepeatFromLazy
         );
 
         match &function_call.name {
@@ -451,7 +451,7 @@ impl<'a> Compiler<'a> {
                     self.emit_repeat_range(expression, from, to, is_lazy)
                 }
             }
-            FunctionName::AtLeast | FunctionName::AtLeastLazy => {
+            FunctionName::RepeatFrom | FunctionName::RepeatFromLazy => {
                 let from = if let Expression::Literal(Literal::Number(n)) = &args[0] {
                     *n
                 } else {
@@ -643,10 +643,10 @@ impl<'a> Compiler<'a> {
         &mut self,
         capture_group_index: usize,
     ) -> Result<Component, AnreError> {
-        if capture_group_index >= self.object_file.capture_group_names.len() {
+        if capture_group_index >= self.object.capture_group_names.len() {
             return Err(AnreError::SyntaxIncorrect(format!(
                 "The group index ({}) of back-reference is out of range, the max index should be: {}.",
-                capture_group_index, self.object_file.capture_group_names.len() - 1
+                capture_group_index, self.object.capture_group_names.len() - 1
             )));
         }
 
@@ -654,7 +654,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn emit_backreference_by_name(&mut self, name: &str) -> Result<Component, AnreError> {
-        let capture_group_index_option = self.object_file.get_capture_group_index_by_name(name);
+        let capture_group_index_option = self.object.get_capture_group_index_by_name(name);
         let capture_group_index = if let Some(i) = capture_group_index_option {
             i
         } else {
@@ -707,7 +707,7 @@ impl<'a> Compiler<'a> {
         expression: &Expression,
         name_option: Option<String>,
     ) -> Result<Component, AnreError> {
-        let capture_group_index = self.object_file.create_capture_group(name_option);
+        let capture_group_index = self.object.create_capture_group(name_option);
         let component = self.emit_expression(expression)?;
 
         //   capture start   component    capture end
@@ -955,7 +955,7 @@ impl<'a> Compiler<'a> {
         // 1. save the current route index
         // 2. create new route
         let saved_route_index = self.current_route_index;
-        let sub_route_index = self.object_file.create_route();
+        let sub_route_index = self.object.create_route();
 
         // 3. switch to the new route
         self.current_route_index = sub_route_index;
@@ -1016,7 +1016,7 @@ impl<'a> Compiler<'a> {
         // 1. save the current route index
         // 2. create new route
         let saved_route_index = self.current_route_index;
-        let sub_route_index = self.object_file.create_route();
+        let sub_route_index = self.object.create_route();
 
         // 3. switch to the new route
         self.current_route_index = sub_route_index;
@@ -1117,8 +1117,8 @@ fn append_charset(charset: &CharSet, items: &mut Vec<CharSetItem>) -> Result<(),
             CharSetElement::Char(c) => add_char(items, *c),
             CharSetElement::CharRange(CharRange {
                 start,
-                end_included,
-            }) => add_range(items, *start, *end_included),
+                end_inclusive,
+            }) => add_range(items, *start, *end_inclusive),
             CharSetElement::PresetCharSet(name) => {
                 append_preset_charset_positive_only(name, items)?;
             }
@@ -1137,13 +1137,13 @@ mod tests {
     use pretty_assertions::assert_str_eq;
 
     use crate::{
-        object_file::{ObjectFile, MAIN_ROUTE_INDEX},
+        object::{Object, MAIN_ROUTE_INDEX},
         AnreError,
     };
 
     use super::{compile_from_anre, compile_from_regex};
 
-    fn generate_routes(anre: &str, regex: &str) -> [ObjectFile; 2] {
+    fn generate_routes(anre: &str, regex: &str) -> [Object; 2] {
         [
             compile_from_anre(anre).unwrap(),
             compile_from_regex(regex).unwrap(),

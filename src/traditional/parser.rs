@@ -313,13 +313,13 @@ impl Parser<'_> {
                             args.push(Expression::Literal(Literal::Number(*n)));
                             FunctionName::Repeat
                         }
-                        Repetition::AtLeast(n) => {
+                        Repetition::RepeatFrom(n) => {
                             args.push(Expression::Literal(Literal::Number(*n)));
 
                             if *lazy {
-                                FunctionName::AtLeastLazy
+                                FunctionName::RepeatFromLazy
                             } else {
-                                FunctionName::AtLeast
+                                FunctionName::RepeatFrom
                             }
                         }
                         Repetition::Range(m, n) => {
@@ -563,7 +563,7 @@ impl Parser<'_> {
                     // char range
                     let char_range = CharRange {
                         start: *from,
-                        end_included: *to,
+                        end_inclusive: *to,
                     };
 
                     self.next_token(); // consume char range
@@ -686,7 +686,7 @@ mod tests {
                         CharSetElement::Char('a'),
                         CharSetElement::CharRange(CharRange {
                             start: '0',
-                            end_included: '9'
+                            end_inclusive: '9'
                         }),
                         CharSetElement::PresetCharSet(PresetCharSetName::CharWord),
                     ]
@@ -721,9 +721,9 @@ zero_or_more_lazy('z')"#
                 .to_string(),
             r#"repeat('a', 3)
 repeat_range('b', 5, 7)
-at_least('c', 11)
+repeat_from('c', 11)
 repeat_range_lazy('y', 5, 7)
-at_least_lazy('z', 11)"#
+repeat_from_lazy('z', 11)"#
         );
 
         // err: '{m}?' is not allowed
@@ -898,7 +898,7 @@ one_or_more([char_word, '.', '-'])
 optional(index(('+', one_or_more([char_word, '-']))))
 '@'
 one_or_more(index((one_or_more(['a'..'z', 'A'..'Z', '0'..'9', '-']), '.')))
-at_least(['a'..'z'], 2)
+repeat_from(['a'..'z'], 2)
 end"
         );
 

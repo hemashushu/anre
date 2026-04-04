@@ -7,8 +7,23 @@
 use std::fmt::Display;
 
 use crate::ast::{
-    CharRange, CharSet, CharSetElement, Expression, FunctionCall, FunctionName, Literal, Program,
+    BackReference, CharRange, CharSet, CharSetElement, Expression, FunctionArgument, FunctionCall,
+    FunctionName, Literal, PresetCharSetName, Program,
 };
+
+impl Display for PresetCharSetName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name_str = match self {
+            PresetCharSetName::CharWord => "char_word",
+            PresetCharSetName::CharNotWord => "char_not_word",
+            PresetCharSetName::CharDigit => "char_digit",
+            PresetCharSetName::CharNotDigit => "char_not_digit",
+            PresetCharSetName::CharSpace => "char_space",
+            PresetCharSetName::CharNotSpace => "char_not_space",
+        };
+        f.write_str(name_str)
+    }
+}
 
 impl Display for FunctionName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -18,25 +33,27 @@ impl Display for FunctionName {
             FunctionName::ZeroOrMore => f.write_str("zero_or_more"),
             FunctionName::Repeat => f.write_str("repeat"),
             FunctionName::RepeatRange => f.write_str("repeat_range"),
-            FunctionName::AtLeast => f.write_str("at_least"),
+            FunctionName::RepeatFrom => f.write_str("repeat_from"),
             FunctionName::OptionalLazy => f.write_str("optional_lazy"),
             FunctionName::OneOrMoreLazy => f.write_str("one_or_more_lazy"),
             FunctionName::ZeroOrMoreLazy => f.write_str("zero_or_more_lazy"),
             FunctionName::RepeatRangeLazy => f.write_str("repeat_range_lazy"),
-            FunctionName::AtLeastLazy => f.write_str("at_least_lazy"),
+            FunctionName::RepeatFromLazy => f.write_str("repeat_from_lazy"),
             FunctionName::IsBefore => f.write_str("is_before"),
             FunctionName::IsAfter => f.write_str("is_after"),
             FunctionName::IsNotBefore => f.write_str("is_not_before"),
             FunctionName::IsNotAfter => f.write_str("is_not_after"),
-            FunctionName::Name => f.write_str("name"),
-            FunctionName::Index => f.write_str("index"),
+            FunctionName::IsStart => f.write_str("is_start"),
+            FunctionName::IsEnd => f.write_str("is_end"),
+            FunctionName::IsBound => f.write_str("is_bound"),
+            FunctionName::IsNotBound => f.write_str("is_not_bound"),
         }
     }
 }
 
 impl Display for CharRange {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "'{}'..'{}'", self.start, self.end_included)
+        write!(f, "'{}'..'{}'", self.start, self.end_inclusive)
     }
 }
 
@@ -65,26 +82,23 @@ impl Display for CharSet {
 impl Display for Literal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Literal::Number(i) => write!(f, "{}", i),
+            Literal::AnyChar => write!(f, "char_any"),
             Literal::Char(c) => write!(f, "'{}'", c),
             Literal::String(s) => write!(f, "\"{}\"", s),
             Literal::CharSet(c) => write!(f, "{}", c),
             Literal::PresetCharSet(p) => write!(f, "{}", p),
-            Literal::Special(s) => write!(f, "{}", s),
         }
     }
 }
 
-// impl Display for FunctionCallArg {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             FunctionCallArg::Number(i) => write!(f, "{}", i),
-//             FunctionCallArg::Identifier(s) => write!(f, "{}", s),
-//             FunctionCallArg::String(s) => write!(f, "\"{}\"", s),
-//             FunctionCallArg::Expression(e) => write!(f, "{}", e),
-//         }
-//     }
-// }
+impl Display for FunctionArgument {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FunctionArgument::Number(i) => write!(f, "{}", i),
+            FunctionArgument::Expression(e) => write!(f, "{}", e),
+        }
+    }
+}
 
 impl Display for FunctionCall {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -93,13 +107,20 @@ impl Display for FunctionCall {
     }
 }
 
+impl Display for BackReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BackReference::Index(index) => write!(f, "^{}", index),
+            BackReference::Name(name) => f.write_str(name),
+        }
+    }
+}
+
 impl Display for Expression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Expression::Literal(e) => write!(f, "{}", e),
             Expression::BackReference(e) => write!(f, "{}", e),
-            Expression::AnchorAssertion(e) => write!(f, "{}", e),
-            Expression::BoundaryAssertion(e) => write!(f, "{}", e),
             Expression::Group(expressions) => {
                 let lines: Vec<String> = expressions.iter().map(|e| e.to_string()).collect();
                 write!(f, "({})", lines.join(", "))
@@ -118,37 +139,34 @@ impl Display for Expression {
                     write!(f, "{} || {}", left, right)
                 }
             }
+            Expression::IndexCapture(expression) => write!(f, "#{}", expression),
+            Expression::NameCapture(name, expression) => write!(f, "{} as {}", expression, name),
         }
     }
 }
 
 impl Display for Program {
-    // for debug
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut exp_strings: Vec<String> = vec![];
-        for (idx, expression) in self.expressions.iter().enumerate() {
-            match expression {
-                Expression::FunctionCall(function_call) => {
-                    if idx != 0 {
-                        // replace the last ',' with '\n'
-                        exp_strings.pop();
-                        exp_strings.push("\n".to_owned());
-                    }
-                    exp_strings.push(function_call.to_string());
-                    exp_strings.push("\n".to_owned());
-                }
-                _ => {
-                    exp_strings.push(expression.to_string());
-                    exp_strings.push(", ".to_owned());
-                }
-            }
-        }
+        write!(f, "{}", self.expression)
+    }
+}
 
-        if !exp_strings.is_empty() {
-            exp_strings.pop(); // remove the last ',' or '\n'
-            write!(f, "{}", exp_strings.join(""))
-        } else {
-            f.write_str("")
-        }
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use crate::ast::{Expression, Literal, PresetCharSetName, Program};
+
+    #[test]
+    fn test_display() {
+        let program = Program {
+            expression: Expression::Group(vec![
+                Expression::Literal(Literal::Char('a')),
+                Expression::Literal(Literal::String("foo".to_string())),
+                Expression::Literal(Literal::PresetCharSet(PresetCharSetName::CharWord)),
+            ]),
+        };
+
+        assert_eq!(program.to_string(), r#"('a', "foo", char_word)"#);
     }
 }

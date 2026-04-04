@@ -9,32 +9,32 @@ use std::ops::{Index, Range};
 use crate::{
     compiler::{compile_from_anre, compile_from_regex},
     context::Context,
-    object_file::ObjectFile,
+    object::Object,
     process::start_process,
     AnreError,
 };
 
 pub struct Regex {
-    pub object_file: ObjectFile,
+    pub object: Object,
 }
 
 impl Regex {
     pub fn new(pattern: &str) -> Result<Self, AnreError> {
-        let object_file = compile_from_regex(pattern)?;
-        Ok(Regex { object_file })
+        let object = compile_from_regex(pattern)?;
+        Ok(Regex { object })
     }
 
     pub fn from_anre(expression: &str) -> Result<Self, AnreError> {
-        let object_file = compile_from_anre(expression)?;
-        Ok(Regex { object_file })
+        let object = compile_from_anre(expression)?;
+        Ok(Regex { object })
     }
 
     pub fn find<'a, 'b>(&'a self, text: &'b str) -> Option<Match<'a, 'b>> {
         let bytes = text.as_bytes();
-        let number_of_capture_groups = self.object_file.capture_group_names.len();
+        let number_of_capture_groups = self.object.capture_group_names.len();
         let mut context = Context::from_bytes(bytes, number_of_capture_groups);
 
-        if !start_process(&mut context, &self.object_file, 0) {
+        if !start_process(&mut context, &self.object, 0) {
             return None;
         }
 
@@ -42,7 +42,7 @@ impl Regex {
         let match_ = Match::new(
             match_range.start,
             match_range.end,
-            self.object_file.get_capture_group_name_by_index(0),
+            self.object.get_capture_group_name_by_index(0),
             sub_string(bytes, match_range.start, match_range.end),
         );
 
@@ -51,18 +51,18 @@ impl Regex {
 
     pub fn find_iter<'a, 'b>(&'a self, text: &'b str) -> Matches<'a, 'b> {
         let bytes = text.as_bytes();
-        let number_of_capture_groups = self.object_file.capture_group_names.len();
+        let number_of_capture_groups = self.object.capture_group_names.len();
         let context = Context::from_bytes(bytes, number_of_capture_groups);
 
-        Matches::new(&self.object_file, context)
+        Matches::new(&self.object, context)
     }
 
     pub fn captures<'a, 'b>(&'a self, text: &'b str) -> Option<Captures<'a, 'b>> {
         let bytes = text.as_bytes();
-        let number_of_capture_groups = self.object_file.capture_group_names.len();
+        let number_of_capture_groups = self.object.capture_group_names.len();
         let mut context = Context::from_bytes(bytes, number_of_capture_groups);
 
-        if !start_process(&mut context, &self.object_file, 0) {
+        if !start_process(&mut context, &self.object, 0) {
             return None;
         }
 
@@ -74,7 +74,7 @@ impl Regex {
                 Match::new(
                     match_range.start,
                     match_range.end,
-                    self.object_file.get_capture_group_name_by_index(idx),
+                    self.object.get_capture_group_name_by_index(idx),
                     sub_string(bytes, match_range.start, match_range.end),
                 )
             })
@@ -85,30 +85,30 @@ impl Regex {
 
     pub fn captures_iter<'a, 'b>(&'a self, text: &'b str) -> CaptureMatches<'a, 'b> {
         let bytes = text.as_bytes();
-        let number_of_capture_groups = self.object_file.capture_group_names.len();
+        let number_of_capture_groups = self.object.capture_group_names.len();
         let context = Context::from_bytes(bytes, number_of_capture_groups);
 
-        CaptureMatches::new(&self.object_file, context)
+        CaptureMatches::new(&self.object, context)
     }
 
     pub fn is_match(&self, text: &str) -> bool {
         let bytes = text.as_bytes();
-        let number_of_capture_groups = self.object_file.capture_group_names.len();
+        let number_of_capture_groups = self.object.capture_group_names.len();
         let mut context = Context::from_bytes(bytes, number_of_capture_groups);
-        start_process(&mut context, &self.object_file, 0)
+        start_process(&mut context, &self.object, 0)
     }
 }
 
 pub struct CaptureMatches<'a, 'b> {
-    object_file: &'a ObjectFile,
+    object: &'a Object,
     context: Context<'b>,
     last_position: usize,
 }
 
 impl<'a, 'b> CaptureMatches<'a, 'b> {
-    fn new(object_file: &'a ObjectFile, context: Context<'b>) -> Self {
+    fn new(object: &'a Object, context: Context<'b>) -> Self {
         CaptureMatches {
-            object_file,
+            object,
             context,
             last_position: 0,
         }
@@ -119,7 +119,7 @@ impl<'a, 'b> Iterator for CaptureMatches<'a, 'b> {
     type Item = Captures<'a, 'b>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !start_process(&mut self.context, self.object_file, self.last_position) {
+        if !start_process(&mut self.context, self.object, self.last_position) {
             return None;
         }
 
@@ -132,7 +132,7 @@ impl<'a, 'b> Iterator for CaptureMatches<'a, 'b> {
                 Match::new(
                     match_range.start,
                     match_range.end,
-                    self.object_file.get_capture_group_name_by_index(idx),
+                    self.object.get_capture_group_name_by_index(idx),
                     sub_string(self.context.bytes, match_range.start, match_range.end),
                 )
             })
@@ -145,15 +145,15 @@ impl<'a, 'b> Iterator for CaptureMatches<'a, 'b> {
 }
 
 pub struct Matches<'a, 'b> {
-    object_file: &'a ObjectFile,
+    object: &'a Object,
     context: Context<'b>,
     last_position: usize,
 }
 
 impl<'a, 'b> Matches<'a, 'b> {
-    fn new(object_file: &'a ObjectFile, context: Context<'b>) -> Self {
+    fn new(object: &'a Object, context: Context<'b>) -> Self {
         Matches {
-            object_file,
+            object,
             context,
             last_position: 0,
         }
@@ -164,7 +164,7 @@ impl<'a, 'b> Iterator for Matches<'a, 'b> {
     type Item = Match<'a, 'b>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !start_process(&mut self.context, self.object_file, self.last_position) {
+        if !start_process(&mut self.context, self.object, self.last_position) {
             return None;
         }
 
@@ -172,7 +172,7 @@ impl<'a, 'b> Iterator for Matches<'a, 'b> {
         let match_ = Match::new(
             match_range.start,
             match_range.end,
-            self.object_file.get_capture_group_name_by_index(0),
+            self.object.get_capture_group_name_by_index(0),
             sub_string(self.context.bytes, match_range.start, match_range.end),
         );
 
@@ -251,8 +251,8 @@ impl Index<&str> for Captures<'_, '_> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Match<'a, 'b> {
-    pub start: usize, // the position of utf-8 byte stream (value included)
-    pub end: usize,   // the position of utf-8 byte stream (value excluded)
+    pub start: usize, // the position of utf-8 byte stream (value inclusive)
+    pub end: usize,   // the position of utf-8 byte stream (value exclusive)
     pub name: Option<&'a str>,
     pub value: &'b str,
 }
@@ -721,7 +721,7 @@ mod tests {
     fn test_process_group() {
         // ANRE group = a sequence of patterns
         for re in generate_res(
-            r#"'a', 'b', 'c'"#, // ANRE
+            r#"('a', 'b', 'c')"#, // ANRE
             r#"abc"#,           // traditional
         ) {
             let text = "ababcbcabc";
@@ -733,7 +733,7 @@ mod tests {
         }
 
         for re in generate_res(
-            r#"'%', char_digit"#, // ANRE
+            r#"('%', char_digit)"#, // ANRE
             r#"%\d"#,             // traditional
         ) {
             let text = "0123%567%9";
@@ -745,7 +745,7 @@ mod tests {
         }
 
         for re in generate_res(
-            r#"['+','-'], ('%', char_digit)"#, // ANRE
+            r#"(['+','-'], ('%', char_digit))"#, // ANRE
             r#"[+-](%\d)"#,                    // traditional
         ) {
             let text = "%12+%56-%9";
@@ -791,7 +791,7 @@ mod tests {
     #[test]
     fn test_process_start_and_end_assertion() {
         for re in generate_res(
-            r#"start, 'a'"#, // ANRE
+            r#"(is_start(), 'a')"#, // ANRE
             r#"^a"#,         // traditional
         ) {
             let text = "ab";
@@ -802,7 +802,7 @@ mod tests {
         }
 
         for re in generate_res(
-            r#"'a', end"#, // ANRE
+            r#"('a', is_end())"#, // ANRE
             r#"a$"#,       // traditional
         ) {
             let text = "ab";
@@ -812,7 +812,7 @@ mod tests {
         }
 
         for re in generate_res(
-            r#"start, 'a'"#, // ANRE
+            r#"(is_start(), 'a')"#, // ANRE
             r#"^a"#,         // traditional
         ) {
             let text = "ba";
@@ -822,7 +822,7 @@ mod tests {
         }
 
         for re in generate_res(
-            r#"'a', end"#, // ANRE
+            r#"('a', is_end())"#, // ANRE
             r#"a$"#,       // traditional
         ) {
             let text = "ba";
@@ -834,7 +834,7 @@ mod tests {
 
         // both 'start' and 'end'
         for re in generate_res(
-            r#"start, 'a', end"#, // ANRE
+            r#"(is_start(), 'a', is_end())"#, // ANRE
             r#"^a$"#,             // traditional
         ) {
             let text = "a";
@@ -846,7 +846,7 @@ mod tests {
 
         // both 'start' and 'end' - failed 1
         for re in generate_res(
-            r#"start, 'a', end"#, // ANRE
+            r#"(is_start(), 'a', is_end())"#, // ANRE
             r#"^a$"#,             // traditional
         ) {
             let text = "ab";
@@ -857,7 +857,7 @@ mod tests {
 
         // both 'start' and 'end' - failed 2
         for re in generate_res(
-            r#"start, 'a', end"#, // ANRE
+            r#"(is_start(), 'a', is_end())"#, // ANRE
             r#"^a$"#,             // traditional
         ) {
             let text = "ba";
@@ -871,7 +871,7 @@ mod tests {
     fn test_process_boundary_assertion() {
         // matching 'boundary + char'
         for re in generate_res(
-            r#"is_bound, 'a'"#, // ANRE
+            r#"(is_bound(), 'a')"#, // ANRE
             r#"\ba"#,           // traditional
         ) {
             let text = "ab";
@@ -882,7 +882,7 @@ mod tests {
         }
 
         for re in generate_res(
-            r#"is_bound, 'a'"#, // ANRE
+            r#"(is_bound(), 'a')"#, // ANRE
             r#"\ba"#,           // traditional
         ) {
             let text = "a";
@@ -893,7 +893,7 @@ mod tests {
         }
 
         for re in generate_res(
-            r#"is_bound, 'a'"#, // ANRE
+            r#"(is_bound(), 'a')"#, // ANRE
             r#"\ba"#,           // traditional
         ) {
             let text = " a";
@@ -904,7 +904,7 @@ mod tests {
         }
 
         for re in generate_res(
-            r#"is_bound, 'a'"#, // ANRE
+            r#"(is_bound(), 'a')"#, // ANRE
             r#"\ba"#,           // traditional
         ) {
             let text = "ba";
@@ -915,7 +915,7 @@ mod tests {
 
         // matching 'char + boundary'
         for re in generate_res(
-            r#"'a', is_bound"#, // ANRE
+            r#"('a', is_bound())"#, // ANRE
             r#"a\b"#,           // traditional
         ) {
             let text = "ba";
@@ -926,7 +926,7 @@ mod tests {
         }
 
         for re in generate_res(
-            r#"'a', is_bound"#, // ANRE
+            r#"('a', is_bound())"#, // ANRE
             r#"a\b"#,           // traditional
         ) {
             let text = "a";
@@ -937,7 +937,7 @@ mod tests {
         }
 
         for re in generate_res(
-            r#"'a', is_bound"#, // ANRE
+            r#"('a', is_bound())"#, // ANRE
             r#"a\b"#,           // traditional
         ) {
             let text = "a ";
@@ -948,7 +948,7 @@ mod tests {
         }
 
         for re in generate_res(
-            r#"'a', is_bound"#, // ANRE
+            r#"('a', is_bound())"#, // ANRE
             r#"a\b"#,           // traditional
         ) {
             let text = "ab";
@@ -962,7 +962,7 @@ mod tests {
     fn test_process_optional() {
         // char optional
         for re in generate_res(
-            r#"'a', 'b'?, 'c'"#, // ANRE
+            r#"('a', 'b'?, 'c')"#, // ANRE
             r#"ab?c"#,           // traditional
         ) {
             // let re = Regex::from_anre("'a', 'b'?, 'c'").unwrap();
@@ -978,7 +978,7 @@ mod tests {
 
         // char optional - greedy
         for re in generate_res(
-            r#"'a', 'b', 'c'?"#, // ANRE
+            r#"('a', 'b', 'c'?)"#, // ANRE
             r#"abc?"#,           // traditional
         ) {
             // let re = Regex::from_anre("'a', 'b', 'c'?").unwrap();
@@ -993,7 +993,7 @@ mod tests {
 
         // char optional - lazy
         for re in generate_res(
-            r#"'a', 'b', 'c'??"#, // ANRE
+            r#"('a', 'b', 'c'??)"#, // ANRE
             r#"abc??"#,           // traditional
         ) {
             // let re = Regex::from_anre("'a', 'b', 'c'??").unwrap();
@@ -1008,7 +1008,7 @@ mod tests {
 
         // group optional
         for re in generate_res(
-            r#"'a', ('b','c')?, 'd'"#, // ANRE
+            r#"('a', ('b','c')?, 'd')"#, // ANRE
             r#"a(bc)?d"#,              // traditional
         ) {
             // let re = Regex::from_anre("'a', ('b','c')?, 'd'").unwrap();
@@ -1023,7 +1023,7 @@ mod tests {
     }
 
     #[test]
-    fn test_process_repetition_specified() {
+    fn test_process_repetition() {
         // char repetition
         for re in generate_res(
             r#"'a'{3}"#, // ANRE
@@ -1070,7 +1070,7 @@ mod tests {
 
         // repetition + other pattern
         for re in generate_res(
-            r#"'a'{2}, char_digit"#, // ANRE
+            r#"('a'{2}, char_digit)"#, // ANRE
             r#"a{2}\d"#,             // traditional
         ) {
             // let re = Regex::from_anre("'a'{2}, char_digit").unwrap();
@@ -1085,10 +1085,10 @@ mod tests {
     }
 
     #[test]
-    fn test_process_repetition_range() {
+    fn test_process_repetition_in_range() {
         // char repetition
         for re in generate_res(
-            r#"'a'{1,3}"#, // ANRE
+            r#"'a'{1..3}"#, // ANRE
             r#"a{1,3}"#,   // traditional
         ) {
             // let re = Regex::from_anre("'a'{1,3}").unwrap();
@@ -1106,7 +1106,7 @@ mod tests {
 
         // char repetition lazy
         for re in generate_res(
-            r#"'a'{1,3}?"#, // ANRE
+            r#"'a'{1..3}?"#, // ANRE
             r#"a{1,3}?"#,   // traditional
         ) {
             // let re = Regex::from_anre("'a'{1,3}?").unwrap();
@@ -1124,7 +1124,7 @@ mod tests {
 
         // char repetition - to MAX
         for re in generate_res(
-            r#"'a'{2,}"#, // ANRE
+            r#"'a'{2..}"#, // ANRE
             r#"a{2,}"#,   // traditional
         ) {
             // let re = Regex::from_anre("'a'{2,}").unwrap();
@@ -1140,7 +1140,7 @@ mod tests {
 
         // char repetition - to MAX - lazy
         for re in generate_res(
-            r#"'a'{2,}?"#, // ANRE
+            r#"'a'{2..}?"#, // ANRE
             r#"a{2,}?"#,   // traditional
         ) {
             // let re = Regex::from_anre("'a'{2,}?").unwrap();
@@ -1160,10 +1160,10 @@ mod tests {
     fn test_process_optional_and_repetition_range() {
         // implicit
         for re in generate_res(
-            r#"'a', 'b'{0,3}, 'c'"#, // ANRE
+            r#"('a', 'b'{0..3}, 'c')"#, // ANRE
             r#"ab{0,3}c"#,           // traditional
         ) {
-            // let re = Regex::from_anre("'a', 'b'{0,3}, 'c'").unwrap();
+            // let re = Regex::from_anre("('a', 'b'{0..3}, 'c')").unwrap();
             let text = "acaabcaabbcaabbbcaabbbbc";
             //               "^^ ^^^ ^^^^ ^^^^^       "
             let mut matches = re.find_iter(text);
@@ -1177,10 +1177,10 @@ mod tests {
 
         // explicit
         for re in generate_res(
-            r#"'a', ('b'{2,3})?, 'c'"#, // ANRE
+            r#"('a', ('b'{2..3})?, 'c')"#, // ANRE
             r#"a(b{2,3})?c"#,           // traditional
         ) {
-            // let re = Regex::from_anre("'a', ('b'{2,3})?, 'c'").unwrap();
+            // let re = Regex::from_anre("('a', ('b'{2..3})?, 'c')").unwrap();
             let text = "acaabcaabbcaabbbcaabbbbc";
             //               "^^     ^^^^ ^^^^^       "
             let mut matches = re.find_iter(text);
@@ -1193,10 +1193,10 @@ mod tests {
 
         // repetition specified
         for re in generate_res(
-            r#"'a', ('b'{2})?, 'c'"#, // ANRE
+            r#"('a', ('b'{2})?, 'c')"#, // ANRE
             r#"a(b{2})?c"#,           // traditional
         ) {
-            // let re = Regex::from_anre("'a', ('b'{2})?, 'c'").unwrap();
+            // let re = Regex::from_anre("('a', ('b'{2})?, 'c')").unwrap();
             let text = "acaabcaabbcaabbbcaabbbbc";
             //               "^^     ^^^^             "
             let mut matches = re.find_iter(text);
@@ -1242,7 +1242,7 @@ mod tests {
     fn test_process_repetition_backtracking() {
         // backtracking
         for re in generate_res(
-            r#"start, 'a', char_any+, 'c'"#, // ANRE
+            r#"(is_start(), 'a', char_any+, 'c')"#, // ANRE
             r#"^a.+c"#,                      // traditional
         ) {
             // let re = Regex::from_anre("start, 'a', char_any+, 'c'").unwrap();
@@ -1256,7 +1256,7 @@ mod tests {
         // backtracking - failed
         // because there is no char between 'a' and 'c'
         for re in generate_res(
-            r#"start, 'a', char_any+, 'c'"#, // ANRE
+            r#"(is_start(), 'a', char_any+, 'c')"#, // ANRE
             r#"^a.+c"#,                      // traditional
         ) {
             // let re = Regex::from_anre("start, 'a', char_any+, 'c'").unwrap();
@@ -1268,7 +1268,7 @@ mod tests {
         // backtracking - failed
         // because there is not enough char between 'a' and 'c'
         for re in generate_res(
-            r#"start, 'a', char_any{3,}, 'c'"#, // ANRE
+            r#"(is_start(), 'a', char_any{3..}, 'c')"#, // ANRE
             r#"^a.{3,}c"#,                      // traditional
         ) {
             // let re = Regex::from_anre("start, 'a', char_any{3,}, 'c'").unwrap();
@@ -1279,10 +1279,10 @@ mod tests {
 
         // lazy repetition - no backtracking
         for re in generate_res(
-            r#"'a', char_any+?, 'c'"#, // ANRE
+            r#"('a', char_any+?, 'c')"#, // ANRE
             r#"a.+?c"#,                // traditional
         ) {
-            // let re = Regex::from_anre("'a', char_any+?, 'c'").unwrap();
+            // let re = Regex::from_anre("('a', char_any+?, 'c')").unwrap();
             let text = "abbcmn";
             //               "^^^^  "
             let mut matches = re.find_iter(text);
@@ -1292,7 +1292,7 @@ mod tests {
 
         // nested backtracking
         for re in generate_res(
-            r#"start, 'a', char_any{2,}, 'c', char_any{2,}, 'e'"#, // ANRE
+            r#"(is_start(), 'a', char_any{2..}, 'c', char_any{2..}, 'e')"#, // ANRE
             r#"^a.{2,}c.{2,}e"#,                                   // traditional
         ) {
             // let re = Regex::from_anre("start, 'a', char_any{2,}, 'c', char_any{2,}, 'e'").unwrap();
@@ -1307,7 +1307,7 @@ mod tests {
     fn test_process_capture() {
         // index
         for re in generate_res(
-            r#"("0x" || "0o" || "0b").index(), (char_digit+).index()"#, // ANRE
+            r#"(#("0x" || "0o" || "0b"), #(char_digit+))"#, // ANRE
             r#"(0x|0o|0b)(\d+)"#,                                       // traditional
         ) {
             let text = "abc0x23def0o456xyz";
@@ -1335,7 +1335,7 @@ mod tests {
 
         // named
         for re in generate_res(
-            r#"("0x" || "0o" || "0b").name("prefix"), (char_digit+).name("number")"#, // ANRE
+            r#"(("0x" || "0o" || "0b") as prefix, (char_digit+) as number)"#, // ANRE
             r#"(?<prefix>0x|0o|0b)(?<number>\d+)"#,                               // traditional
         ) {
             let text = "abc0x23def0o456xyz";
@@ -1363,7 +1363,7 @@ mod tests {
 
         // named - by Regex::captures_iter(...)
         for re in generate_res(
-            r#"("0x" || "0o" || "0b").name("prefix"), (char_digit+).name("number")"#, // ANRE
+            r#"(("0x" || "0o" || "0b") as prefix, (char_digit+) as number)"#, // ANRE
             r#"(?<prefix>0x|0o|0b)(?<number>\d+)"#,                               // traditional
         ) {
             // let re = Regex::from_anre(
@@ -1401,7 +1401,7 @@ mod tests {
 
         // named - by Regex::find_iter(...)
         for re in generate_res(
-            r#"("0x" || "0o" || "0b").name("prefix"), (char_digit+).name("number")"#, // ANRE
+            r#"(("0x" || "0o" || "0b") as prefix, (char_digit+) as number)"#, // ANRE
             r#"(?<prefix>0x|0o|0b)(?<number>\d+)"#,                               // traditional
         ) {
             // let re = Regex::from_anre(
@@ -1426,20 +1426,13 @@ mod tests {
     fn test_process_backreference() {
         for re in generate_res(
             r#"
-            ('<', (char_word+).name("tag_name"), '>'),
-            char_any+,
-            ("</", tag_name, '>')
-            "#, // ANRE
+            (
+                ('<', (char_word+) as tag_name, '>'),
+                char_any+,
+                ("</", tag_name, '>')
+            )"#, // ANRE
             r#"<(?<tag_name>\w+)>.+</\k<tag_name>>"#, // traditional
         ) {
-            // let re = Regex::from_anre(
-            //     r#"
-            // ('<', (char_word+).name(tag_name), '>'),
-            // char_any+,
-            // ("</", tag_name, '>')
-            // "#,
-            // )
-            // .unwrap();
             let text = "zero<div>one<div>two</div>three</div>four";
             let mut matches = re.captures_iter(text);
 
@@ -1455,10 +1448,11 @@ mod tests {
         // backreference + lazy
         for re in generate_res(
             r#"
-            ('<', (char_word+).name("tag_name"), '>'),
-            char_any+?,
-            ("</", tag_name, '>')
-            "#, // ANRE
+            (
+                ('<', (char_word+) as tag_name, '>'),
+                char_any+?,
+                ("</", tag_name, '>')
+            )"#, // ANRE
             r#"<(?<tag_name>\w+)>.+?</\k<tag_name>>"#, // traditional
         ) {
             let text = "zero<div>one<div>two</div>three</div>four";
@@ -1561,7 +1555,7 @@ mod tests {
     #[test]
     fn test_process_lookahead() {
         for re in generate_res(
-            r#"is_bound, ['a'..'f'].is_before(char_digit)"#, // ANRE
+            r#"(is_bound(), ['a'..'f'].is_before(char_digit))"#, // ANRE
             r#"\b[a-f](?=\d)"#,                              // traditional
         ) {
             // let re = Regex::from_anre("is_bound, ['a'..'f'].is_before(char_digit)").unwrap();
@@ -1576,22 +1570,14 @@ mod tests {
 
         for re in generate_res(
             r#"
-            is_bound
+            (
+                is_bound(),
                 ['a'..'z']
-                    .at_least(2)
+                    .repeat_from(2)
                     .is_before("ing" || "ed")
-            "#, // ANRE
+            )"#, // ANRE
             r#"\b[a-z]{2,}(?=ing|ed)"#, // traditional
         ) {
-            // let re = Regex::from_anre(
-            //     r#"
-            //     is_bound
-            //     ['a'..'z']
-            //         .at_least(2)
-            //         .is_before("ing" || "ed")
-            //     "#,
-            // )
-            // .unwrap();
             let text = "jump jumping aaaabbbbing push pushed fork";
             let mut matches = re.find_iter(text);
 
@@ -1604,22 +1590,14 @@ mod tests {
         // negative
         for re in generate_res(
             r#"
-                is_bound
+            (
+                is_bound(),
                 ['a'..'z']
                     .repeat(4)
                     .is_not_before("ing" || "ed")
-            "#, // ANRE
+            )"#, // ANRE
             r#"\b[a-z]{4}(?!ing|ed)"#, // traditional
         ) {
-            // let re = Regex::from_anre(
-            //     r#"
-            //     is_bound
-            //     ['a'..'z']
-            //         .repeat(4)
-            //         .is_not_before("ing" || "ed")
-            //     "#,
-            // )
-            // .unwrap();
             let text = "jump jumping aaaabbbbing push pushed fork";
             let mut matches = re.find_iter(text);
 
@@ -1636,9 +1614,7 @@ mod tests {
         // `('c'.is_before('a'), 'b')` always fails because it is
         // impossible to be both 'a' and 'b' after 'c'.
         for re in generate_res(
-            r#"
-            'c'.is_before('a'), 'b'
-            "#, // ANRE
+            r#"('c'.is_before('a'), 'b')"#, // ANRE
             r#"c(?=a)b"#, // traditional
         ) {
             // let re = Regex::from_anre("'c'.is_before('a'), 'b'").unwrap();

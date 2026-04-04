@@ -6,7 +6,7 @@
 
 use crate::{
     context::{Context, Routine},
-    object_file::{ObjectFile, MAIN_ROUTE_INDEX},
+    object::{Object, MAIN_ROUTE_INDEX},
     transition::ExecuteResult,
     utf8reader::read_char,
 };
@@ -16,13 +16,13 @@ use crate::{
 /// A process represents a matching operation.
 pub fn start_process(
     context: &mut Context,
-    object_file: &ObjectFile,
+    object: &Object,
     start_position: usize,
 ) -> bool {
     let end = context.bytes.len();
 
     // Start the main routine for matching.
-    start_routine(context, object_file, MAIN_ROUTE_INDEX, start_position, end)
+    start_routine(context, object, MAIN_ROUTE_INDEX, start_position, end)
 }
 
 /// Start a routine.
@@ -32,7 +32,7 @@ pub fn start_process(
 /// and the text range for the routine.
 pub fn start_routine(
     context: &mut Context,
-    object_file: &ObjectFile,
+    object: &Object,
     route_index: usize,
     start_position: usize, // Start position of the text range (inclusive).
     end_position: usize,   // End position of the text range (exclusive).
@@ -50,13 +50,13 @@ pub fn start_routine(
     // Continue moving the start position forward and retry matching
     // until a match is successful or the end of the range is reached.
     while position < end_position {
-        if execute_transitions(context, object_file, position) {
+        if execute_transitions(context, object, position) {
             result = true;
             break;
         }
 
         // If the expression starts with "^...", there is no need to try remaining characters.
-        if object_file.routes[route_index].is_fixed_start_position {
+        if object.routes[route_index].is_fixed_start_position {
             break;
         }
 
@@ -71,16 +71,16 @@ pub fn start_routine(
 
 /// Execute transitions for a route starting from a specified position.
 /// Returns `true` if all transitions succeed, otherwise `false`.
-fn execute_transitions(context: &mut Context, object_file: &ObjectFile, position: usize) -> bool {
+fn execute_transitions(context: &mut Context, object: &Object, position: usize) -> bool {
     let (route_index, entry_node_index, exit_node_index) = {
         let thread = context.get_current_routine_ref();
         let route_index = thread.route_index;
-        let route = &object_file.routes[route_index];
+        let route = &object.routes[route_index];
         (route_index, route.start_node_index, route.end_node_index)
     };
 
     // Add transitions for the first node (entry node).
-    context.push_transitions_of_node(object_file, entry_node_index, position, 0);
+    context.push_transitions_of_node(object, entry_node_index, position, 0);
 
     // A route consists of multiple nodes and transitions (similar to functions in programming).
     // When a routine runs, it traverses nodes one by one.
@@ -91,7 +91,7 @@ fn execute_transitions(context: &mut Context, object_file: &ObjectFile, position
     // - On success: Move to the next node and push all its transitions onto the stack.
     //   If the node is the last node of the route, the route matching succeeds.
     while let Some(frame) = context.pop_transition_stack_item() {
-        let route = &object_file.routes[route_index];
+        let route = &object.routes[route_index];
         let node = &route.nodes[frame.current_node_index];
         let transition_item = &node.transition_items[frame.transition_index];
 
@@ -101,7 +101,7 @@ fn execute_transitions(context: &mut Context, object_file: &ObjectFile, position
         let target_node_index = transition_item.target_node_index;
 
         let check_result =
-            transition.execute(context, object_file, position, last_repetition_count);
+            transition.execute(context, object, position, last_repetition_count);
 
         match check_result {
             ExecuteResult::Success(move_forward, current_repetition_count) => {
@@ -112,7 +112,7 @@ fn execute_transitions(context: &mut Context, object_file: &ObjectFile, position
 
                 // Add transitions for the next node.
                 context.push_transitions_of_node(
-                    object_file,
+                    object,
                     target_node_index,
                     position + move_forward,
                     current_repetition_count,

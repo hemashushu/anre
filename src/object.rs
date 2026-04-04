@@ -29,7 +29,7 @@ pub const MAIN_ROUTE_INDEX: usize = 0;
 //
 // One regular expression generates one object file.
 #[derive(Debug)]
-pub struct ObjectFile {
+pub struct Object {
     // Generally, one regular expression consists of a series of nodes, forming a "route."
     // However, "lookahead assertions" or "lookbehind assertions" in the regular expression
     // may generate sub-routes. Therefore, one object file can contain multiple "routes,"
@@ -78,9 +78,9 @@ pub struct TransitionItem {
     pub target_node_index: usize,
 }
 
-impl ObjectFile {
+impl Object {
     pub fn new() -> Self {
-        ObjectFile {
+        Object {
             routes: vec![],
             capture_group_names: vec![],
         }
@@ -155,7 +155,7 @@ impl ObjectFile {
     }
 }
 
-impl Default for ObjectFile {
+impl Default for Object {
     fn default() -> Self {
         Self::new()
     }
@@ -230,18 +230,18 @@ mod tests {
     use pretty_assertions::{assert_eq, assert_str_eq};
 
     use crate::{
-        object_file::ObjectFile,
+        object::Object,
         transition::{CharTransition, Transition},
     };
 
     #[test]
     fn test_object_file_create_route() {
-        let mut object_file = ObjectFile::new();
+        let mut object = Object::new();
 
         // Create a route
         {
-            let route_index = object_file.create_route();
-            let route = &mut object_file.routes[route_index];
+            let route_index = object.create_route();
+            let route = &mut object.routes[route_index];
 
             // Create a node
             let _idx0 = route.create_node();
@@ -272,14 +272,14 @@ mod tests {
 
         // Create another route
         {
-            let route_index = object_file.create_route();
-            let route = &mut object_file.routes[route_index];
+            let route_index = object.create_route();
+            let route = &mut object.routes[route_index];
 
             // Create a node
             let _idx0 = route.create_node();
 
             assert_str_eq!(
-                object_file.get_debug_text(),
+                object.get_debug_text(),
                 "\
 = $0
 - 0
@@ -294,19 +294,19 @@ mod tests {
 
     #[test]
     fn test_object_file_create_capture_group() {
-        let mut object_file = ObjectFile::new();
-        let route_index = object_file.create_route();
-        let route = &mut object_file.routes[route_index];
+        let mut object = Object::new();
+        let route_index = object.create_route();
+        let route = &mut object.routes[route_index];
 
         route.create_node();
         route.create_node();
 
-        object_file.create_capture_group(None);
-        object_file.create_capture_group(Some("foo".to_owned()));
-        object_file.create_capture_group(None);
+        object.create_capture_group(None);
+        object.create_capture_group(Some("foo".to_owned()));
+        object.create_capture_group(None);
 
         assert_str_eq!(
-            object_file.get_debug_text(),
+            object.get_debug_text(),
             "\
 > 0
 - 1
@@ -315,15 +315,15 @@ mod tests {
 # {2}"
         );
 
-        assert_eq!(object_file.get_capture_group_index_by_name("foo"), Some(1));
-        assert!(object_file.get_capture_group_index_by_name("bar").is_none());
+        assert_eq!(object.get_capture_group_index_by_name("foo"), Some(1));
+        assert!(object.get_capture_group_index_by_name("bar").is_none());
     }
 
     #[test]
     fn test_route_append_transition() {
-        let mut object_file = ObjectFile::new();
-        let route_index = object_file.create_route();
-        let route = &mut object_file.routes[route_index];
+        let mut object = Object::new();
+        let route_index = object.create_route();
+        let route = &mut object.routes[route_index];
 
         let node_idx0 = route.create_node();
         let node_idx1 = route.create_node();

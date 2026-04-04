@@ -98,12 +98,12 @@ pub fn get_match_length(exp: &Expression) -> MatchLength {
                 get_match_length(base_exp) * factor
             }
             FunctionName::RepeatRange => MatchLength::Variable,
-            FunctionName::AtLeast => MatchLength::Variable,
+            FunctionName::RepeatFrom => MatchLength::Variable,
             FunctionName::OptionalLazy => MatchLength::Variable,
             FunctionName::OneOrMoreLazy => MatchLength::Variable,
             FunctionName::ZeroOrMoreLazy => MatchLength::Variable,
             FunctionName::RepeatRangeLazy => MatchLength::Variable,
-            FunctionName::AtLeastLazy => MatchLength::Variable,
+            FunctionName::RepeatFromLazy => MatchLength::Variable,
             FunctionName::IsBefore => {
                 let base_exp = &function_call.args[0];
                 get_match_length(base_exp)
