@@ -8,8 +8,8 @@ use crate::{error::AnreError, peekable_iter::PeekableIter, range::Range};
 
 use super::token::{Token, TokenWithRange};
 
-/// Expands macros in the token stream by replacing definition identifiers
-/// with their corresponding replacement tokens.
+/// Expands `define name (...)` declarations and substitutes later uses of
+/// `name` with the recorded token sequence.
 pub fn expand(tokens: Vec<TokenWithRange>) -> Result<Vec<TokenWithRange>, AnreError> {
     let (program_tokens, definitions) = extract_definitions(tokens)?;
     let expand_tokens = replace_identifiers(program_tokens, definitions);
@@ -17,10 +17,12 @@ pub fn expand(tokens: Vec<TokenWithRange>) -> Result<Vec<TokenWithRange>, AnreEr
     Ok(expand_tokens)
 }
 
-/// Extracts macro definitions from the token stream.
+/// Removes macro definitions from the program token stream and records them for
+/// a later substitution pass.
 ///
-/// A macro definition has the form: `define name (body)`,
-/// where `name` is an identifier and `body` is a sequence of tokens.
+/// A definition has the shape `define name (body)`. The body is kept as raw
+/// tokens so the parser sees exactly what an inline expansion would have
+/// produced.
 fn extract_definitions(
     mut tokens: Vec<TokenWithRange>,
 ) -> Result<(Vec<TokenWithRange>, Vec<Definition>), AnreError> {
@@ -42,8 +44,8 @@ fn extract_definitions(
         let mut end_index_opt: Option<usize> = None;
         let mut idx = define_keyword_index + 1;
 
-        // determine the definition statement range by finding
-        // the matching parenthesis pair after the "define" keyword.
+        // Find the closing `)` for the definition body. Nested groups inside the
+        // body are allowed, so the search tracks parenthesis depth.
         while idx < tokens.len() {
             match tokens[idx].token {
                 Token::ParenthesisOpen => {
@@ -58,7 +60,7 @@ fn extract_definitions(
                             tokens[idx].range,
                         ));
                     } else if parenthesis_depth == 1 {
-                        // found the matching parenthesis pair for the current definition statement
+                        // This `)` closes the outer `(body)` for the current definition.
                         end_index_opt = Some(idx);
                         break;
                     } else {
@@ -66,7 +68,7 @@ fn extract_definitions(
                     }
                 }
                 _ => {
-                    // tokens inside the definition body, do nothing
+                    // Non-parenthesis tokens do not affect the search.
                 }
             }
 
@@ -75,12 +77,12 @@ fn extract_definitions(
 
         // extract one definition
         if let Some(end_index) = end_index_opt {
-            // Remove the definition statement tokens from the original token stream
+            // Remove the full definition from the program token stream.
             let definition_tokens: Vec<TokenWithRange> = tokens
                 .drain(define_keyword_index..(end_index + 1))
                 .collect();
 
-            // Extract the definition from the definition statement tokens, and store it in the definitions list.
+            // Re-parse the drained slice into a `Definition` record.
             let mut token_iter = definition_tokens.into_iter();
             let mut peekable_token_iter = PeekableIter::new(&mut token_iter);
             let mut extractor = DefinitionExtractor::new(&mut peekable_token_iter);
@@ -96,17 +98,18 @@ fn extract_definitions(
     Ok((tokens, definitions))
 }
 
-/// Replaces identifiers in the token stream with their corresponding macro definitions.
+/// Replaces each macro identifier with its expanded token sequence.
 fn replace_identifiers(
     mut program_tokens: Vec<TokenWithRange>,
     mut definitions: Vec<Definition>,
 ) -> Vec<TokenWithRange> {
-    // Reverse the definitions list to ensure that definitions are replaced in the correct order,
-    // i.e., if definition A references definition B, then B should be replaced before A.
+    // Pop definitions in declaration order. Before a definition is applied to the
+    // program, expand it through any later definitions it depends on.
     definitions.reverse();
 
     while let Some(definition) = definitions.pop() {
-        // Expand the current definition in all the remaining definitions
+        // Expand this definition inside the remaining definitions first so nested
+        // macro references are resolved before we touch the program tokens.
         for idx in (0..definitions.len()).rev() {
             find_and_replace_identifiers(
                 &mut definitions[idx].tokens,
@@ -115,7 +118,7 @@ fn replace_identifiers(
             );
         }
 
-        // Expand the current definition in the program tokens
+        // Then expand the definition in the main program body.
         find_and_replace_identifiers(&mut program_tokens, &definition.name, &definition.tokens);
     }
 
@@ -127,10 +130,11 @@ fn find_and_replace_identifiers(
     find_id: &str,
     replace_with: &[TokenWithRange],
 ) {
+    // Walk backwards so splicing does not invalidate the yet-to-be-visited indices.
     for idx in (0..source_tokens.len()).rev() {
         if let Token::Identifier(id) = &source_tokens[idx].token {
             if id == find_id {
-                // Remove the identifier token, and insert the replacement tokens
+                // Replace the identifier token with the recorded macro body.
                 source_tokens.splice(idx..(idx + 1), replace_with.iter().cloned());
             }
         }
@@ -146,7 +150,7 @@ struct Definition {
 pub struct DefinitionExtractor<'a> {
     upstream: &'a mut PeekableIter<'a, TokenWithRange>,
 
-    /// The range of the last consumed token by `next_token` or `next_token_with_range`.
+    /// Range of the most recently consumed token.
     last_range: Range,
 }
 
@@ -195,9 +199,7 @@ impl<'a> DefinitionExtractor<'a> {
         }
     }
 
-    // Peek the next token and check if it equals to the expected token,
-    // return false if not equals or no more token,
-    // error if lexing error occurs during peeking.
+    // Returns `true` when the token at `offset` matches `expected_token`.
     fn peek_token_and_equals(&self, offset: usize, expected_token: &Token) -> bool {
         matches!(
             self.peek_token(offset),

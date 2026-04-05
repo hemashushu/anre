@@ -25,12 +25,10 @@ pub fn lex_from_str(s: &str) -> Result<Vec<TokenWithRange>, AnreError> {
 struct Lexer<'a> {
     upstream: &'a mut PeekableIter<'a, CharWithPosition>,
 
-    // The position of the last consumed character by `next_char()`.
+    // Position of the most recently consumed character.
     last_position: Position,
 
-    // Stack of positions.
-    // It is used to store the positions of characters when consuming them in sequence,
-    // and later used to create the `Range` of tokens.
+    // Temporary start positions used while building token ranges.
     position_stack: Vec<Position>,
 }
 
@@ -70,48 +68,50 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Checks if the character at the given offset matches the expected character.
-    /// It is a convenient method for checking the next few characters without consuming them.
-    /// Returns `true` if the character at the given offset matches the expected character,
-    /// otherwise returns `false`.
+    /// Returns `true` when the character at `offset` matches `expected_char`.
     fn peek_char_and_equals(&self, offset: usize, expected_char: char) -> bool {
         matches!(
             self.upstream.peek(offset),
             Some(CharWithPosition { character, .. }) if character == &expected_char)
     }
 
-    /// Checks if the character at the given offset matches any of the expected characters.
-    /// Returns `true` if the character at the given offset matches any of the expected characters,
-    /// otherwise returns `false`.
-    fn peek_char_and_anyof(&self, offset: usize, expected_chars: &[char]) -> bool {
-        matches!(
-            self.upstream.peek(offset),
-            Some(CharWithPosition { character, .. }) if expected_chars.contains(character))
-    }
-
-    /// Saves the last position to the stack.
-    ///
-    /// Where the last position is identical to position of
-    /// the character consumed by `next_char()`.
+    /// Pushes the position of the character most recently consumed by `next_char()`.
     fn push_last_position_into_stack(&mut self) {
         self.position_stack.push(self.last_position);
     }
 
-    /// Saves the current position to the stack.
-    ///
-    /// Where the current position is identical to the value returned by
-    /// `self.peek_position(0)`.
+    /// Pushes the current input position without consuming a character.
     fn push_peek_position_into_stack(&mut self) {
         let position = *self.peek_position(0).unwrap();
         self.position_stack.push(position);
     }
 
-    /// Pops a position from the stack.
-    ///
-    /// It is usually used after `push_last_position_into_stack()` or
-    /// `push_peek_position_into_stack()` to form a `Range` for a token.
+    /// Pops a previously saved token start position.
     fn pop_position_from_stack(&mut self) -> Position {
         self.position_stack.pop().unwrap()
+    }
+
+    fn consume_char_and_assert(
+        &mut self,
+        expected_char: char,
+        char_description: &str,
+    ) -> Result<(), AnreError> {
+        match self.next_char() {
+            Some(ch) => {
+                if ch == expected_char {
+                    Ok(())
+                } else {
+                    Err(AnreError::MessageWithPosition(
+                        format!("Expect char {}.", char_description),
+                        self.last_position,
+                    ))
+                }
+            }
+            None => Err(AnreError::UnexpectedEndOfDocument(format!(
+                "Expect char {}.",
+                char_description
+            ))),
+        }
     }
 }
 
@@ -122,21 +122,20 @@ impl Lexer<'_> {
         while let Some(current_char) = self.peek_char(0) {
             match current_char {
                 ' ' | '\t' => {
-                    // Skip whitespaces (space, tab).
+                    // Spaces and tabs are separators, not tokens.
                     self.next_char();
                 }
                 '\r' if self.peek_char_and_equals(1, '\n') => {
-                    // Windows style new line `\r\n`
+                    // Skip a Windows newline.
                     self.next_char(); // consume '\r'
                     self.next_char(); // consume '\n'
                 }
                 '\n' => {
-                    // Unix style new line `\n`
-                    self.next_char(); // Consume '\n'
+                    // Skip a Unix newline.
+                    self.next_char(); // consume '\n'
                 }
                 ',' => {
-                    // Comma is used to separate tokens, it is identical to space.
-                    // Consume ','
+                    // Commas are treated like whitespace in ANRE source.
                     self.next_char();
                 }
                 '|' if self.peek_char_and_equals(1, '|') => {
@@ -435,7 +434,7 @@ impl Lexer<'_> {
                 }
                 _ => {
                     return Err(AnreError::MessageWithPosition(
-                        format!("Invalid char '{}' for decimal number.", current_char),
+                        format!("Invalid digit '{}' for decimal number.", current_char),
                         *self.peek_position(0).unwrap(),
                     ));
                 }
@@ -471,15 +470,14 @@ impl Lexer<'_> {
             Some(current_char) => {
                 match current_char {
                     '\\' => {
-                        // escape chars
+                        // Parse a backslash escape inside the char literal.
                         match self.next_char() {
                             Some(escape_type) => {
                                 match escape_type {
                                     '\\' => '\\',
                                     '\'' => '\'',
                                     '"' => {
-                                        // double quote does not necessary to be escaped for char
-                                        // however, it is still supported for consistency between chars and strings.
+                                        // `"` is accepted for consistency with string literals.
                                         '"'
                                     }
                                     't' => {
@@ -511,9 +509,12 @@ impl Lexer<'_> {
                                         }
                                     }
                                     _ => {
-                                        return Err(AnreError::MessageWithPosition(
-                                            format!("Unexpected escape char '{}'.", escape_type),
-                                            self.last_position,
+                                        return Err(AnreError::MessageWithRange(
+                                            format!("Unsupported escape char '{}'.", escape_type),
+                                            Range::new(
+                                                &self.pop_position_from_stack(),
+                                                &self.last_position,
+                                            ),
                                         ));
                                     }
                                 }
@@ -547,7 +548,7 @@ impl Lexer<'_> {
             }
         };
 
-        // consume the right single quote
+        // The literal must end with a closing single quote.
         match self.next_char() {
             Some('\'') => {
                 // Ok
@@ -580,22 +581,25 @@ impl Lexer<'_> {
 
         self.push_peek_position_into_stack();
 
-        self.next_char(); // comsume char '{'
+        self.next_char(); // consume '{'
 
         let mut codepoint_buffer = String::new();
 
         loop {
-            match self.next_char() {
+            match self.peek_char(0) {
                 Some(current_char) => match current_char {
                     '}' => break,
-                    '0'..='9' | 'a'..='f' | 'A'..='F' => codepoint_buffer.push(current_char),
+                    '0'..='9' | 'a'..='f' | 'A'..='F' => {
+                        codepoint_buffer.push(*current_char);
+                        self.next_char(); // consume char
+                    }
                     _ => {
                         return Err(AnreError::MessageWithPosition(
                             format!(
                                 "Invalid character '{}' for unicode escape sequence.",
                                 current_char
                             ),
-                            self.last_position,
+                            *self.peek_position(0).unwrap(),
                         ));
                     }
                 },
@@ -612,14 +616,16 @@ impl Lexer<'_> {
             }
         }
 
-        let codepoint_range = Range::new(&self.pop_position_from_stack(), &self.last_position);
-
         if codepoint_buffer.len() > 6 {
             return Err(AnreError::MessageWithRange(
                 "Unicode point code exceeds six digits.".to_owned(),
-                codepoint_range,
+                Range::new(&self.position_stack.pop().unwrap(), &self.last_position),
             ));
         }
+
+        self.consume_char_and_assert('}', "closing brace for unicode escape sequence")?;
+
+        let codepoint_range = Range::new(&self.pop_position_from_stack(), &self.last_position);
 
         if codepoint_buffer.is_empty() {
             return Err(AnreError::MessageWithRange(
@@ -652,10 +658,11 @@ impl Lexer<'_> {
         // |_______// current char, validated
         // ```
 
-        // Save the start position of the string literal (i.e. the first '"')
+        // Save the position of the opening quote so the final range covers the
+        // whole literal.
         self.push_peek_position_into_stack();
 
-        self.next_char(); // Consumes '"'
+        self.next_char(); // consume '"'
 
         let mut string_buffer = String::new();
 
@@ -664,7 +671,8 @@ impl Lexer<'_> {
                 Some(current_char) => {
                     match current_char {
                         '\\' => {
-                            // save the start position of the escape sequence (i.e. the "\" char)
+                            // Save the escape start so `unescape_unicode_code_point`
+                            // can reuse the same position stack.
                             self.push_last_position_into_stack();
 
                             // escape chars
@@ -675,8 +683,7 @@ impl Lexer<'_> {
                                             string_buffer.push('\\');
                                         }
                                         '\'' => {
-                                            // single quote does not necessary to be escaped for string
-                                            // however, it is still supported for consistency between chars and strings.
+                                            // `\'` is accepted for consistency with char literals.
                                             string_buffer.push('\'');
                                         }
                                         '"' => {
@@ -705,7 +712,7 @@ impl Lexer<'_> {
                                                 string_buffer.push(ch);
                                             } else {
                                                 return Err(AnreError::MessageWithPosition(
-                                                    "Missing the brace for unicode escape sequence.".to_owned(),
+                                                    "Missing opening brace for unicode escape sequence.".to_owned(),
                                                     self.last_position
                                                 ));
                                             }
@@ -729,7 +736,7 @@ impl Lexer<'_> {
                                 }
                             }
 
-                            // discard the saved position of the escape sequence
+                            // Discard the temporary escape start position.
                             self.pop_position_from_stack();
                         }
                         '"' => {
@@ -775,8 +782,7 @@ impl Lexer<'_> {
         self.next_char(); // consume the 2nd '/'
 
         while let Some(current_char) = self.peek_char(0) {
-            // ignore all chars until encountering '\n' or '\r\n'.
-            // do not consume '\n' or '\r\n' since they do not belong to the line comment token.
+            // Leave the newline for the outer loop so line accounting stays in one place.
             match current_char {
                 '\n' => {
                     break;
@@ -827,8 +833,7 @@ impl Lexer<'_> {
                             }
                         }
                         _ => {
-                            // ignore all chars except "/*" and "*/"
-                            // note that line comments within block comments are ignored also.
+                            // Everything else stays inside the current block comment.
                         }
                     }
                 }
@@ -978,6 +983,7 @@ mod tests {
             ]
         );
     }
+
     #[test]
     fn test_lex_identifier() {
         assert_eq!(
@@ -1245,7 +1251,7 @@ mod tests {
         // Testing the ranges
 
         assert_eq!(
-            lex_from_str("'a' '文'").unwrap(),
+            lex_from_str("'a' '文' '\\t' '\\u{6587}'").unwrap(),
             vec![
                 TokenWithRange::new(
                     Token::Char('a'),
@@ -1254,24 +1260,16 @@ mod tests {
                 TokenWithRange::new(
                     Token::Char('文'),
                     Range::from_position_and_length(&Position::new(4, 0, 4), 3)
-                )
+                ),
+                TokenWithRange::new(
+                    Token::Char('\t'),
+                    Range::from_position_and_length(&Position::new(8, 0, 8), 4)
+                ),
+                TokenWithRange::new(
+                    Token::Char('文'),
+                    Range::from_position_and_length(&Position::new(13, 0, 13), 10)
+                ),
             ]
-        );
-
-        assert_eq!(
-            lex_from_str("'\\t'").unwrap(),
-            vec![TokenWithRange::new(
-                Token::Char('\t'),
-                Range::from_position_and_length(&Position::new(0, 0, 0), 4)
-            )]
-        );
-
-        assert_eq!(
-            lex_from_str("'\\u{6587}'").unwrap(),
-            vec![TokenWithRange::new(
-                Token::Char('文'),
-                Range::from_position_and_length(&Position::new(0, 0, 0), 10)
-            )]
         );
 
         // err: empty char
@@ -1335,12 +1333,19 @@ mod tests {
         // err: unsupported escape char \v
         assert!(matches!(
             lex_from_str(r#"'\v'"#),
-            Err(AnreError::MessageWithPosition(
+            Err(AnreError::MessageWithRange(
                 _,
-                Position {
-                    index: 2,
-                    line: 0,
-                    column: 2
+                Range {
+                    start: Position {
+                        index: 0,
+                        line: 0,
+                        column: 0
+                    },
+                    end_inclusive: Position {
+                        index: 2,
+                        line: 0,
+                        column: 2
+                    }
                 }
             ))
         ));
@@ -1348,12 +1353,19 @@ mod tests {
         // err: unsupported hex escape "\x.."
         assert!(matches!(
             lex_from_str(r#"'\x33'"#),
-            Err(AnreError::MessageWithPosition(
+            Err(AnreError::MessageWithRange(
                 _,
-                Position {
-                    index: 2,
-                    line: 0,
-                    column: 2
+                Range {
+                    start: Position {
+                        index: 0,
+                        line: 0,
+                        column: 0
+                    },
+                    end_inclusive: Position {
+                        index: 2,
+                        line: 0,
+                        column: 2
+                    }
                 }
             ))
         ));
@@ -1381,10 +1393,10 @@ mod tests {
         ));
 
         // err: invalid unicode code point, digits too much
-        // "'\\u{1000111}'"
-        //  01 23456789012      // index
+        // "'\\u{10001111}'"
+        //  01 234567890123     // index
         assert!(matches!(
-            lex_from_str("'\\u{1000111}'"),
+            lex_from_str("'\\u{10001111}'"),
             Err(AnreError::MessageWithRange(
                 _,
                 Range {

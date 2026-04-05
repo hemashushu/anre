@@ -4,19 +4,19 @@
 // the Mozilla Public License version 2.0 and additional exceptions.
 // For more details, see the LICENSE, LICENSE.additional, and CONTRIBUTING files.
 
-mod position;
 mod anre;
 mod ast;
 mod char_with_position;
-// mod compiler;
+mod error;
 mod error_printer;
 mod peekable_iter;
-// mod rulechecker;
-// mod traditional;
-// mod transition;
-mod error;
+mod position;
+mod printer;
 mod range;
-
+mod traditional;
+// mod compiler;
+// mod transition;
+// mod rulechecker;
 
 pub mod utf8_codepoint_reader;
 // pub mod context;

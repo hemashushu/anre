@@ -8,6 +8,5 @@ mod lexer;
 mod macro_expander;
 mod parser;
 mod token;
-mod printer;
 
-// pub use parser::parse_from_str;
+pub use parser::parse_from_str;

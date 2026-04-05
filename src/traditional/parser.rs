@@ -62,7 +62,7 @@ impl<'a> Parser<'a> {
                 if &token == expected_token {
                     Ok(())
                 } else {
-                    Err(AnreError::MessageWithLocation(
+                    Err(AnreError::MessageWithPosition(
                         format!("Expect token: {}.", token_description),
                         self.last_range.get_position_by_range_start(),
                     ))
@@ -197,7 +197,7 @@ impl Parser<'_> {
         }
 
         if expressions.is_empty() {
-            return Err(AnreError::MessageWithLocation(
+            return Err(AnreError::MessageWithPosition(
                 "Encountered a blank expression.".to_owned(),
                 self.last_range,
             ));
@@ -304,9 +304,9 @@ impl Parser<'_> {
                     args.push(expression);
 
                     let name = match repetition {
-                        Repetition::Specified(n) => {
+                        Repetition::Repeat(n) => {
                             if *lazy {
-                                return Err(AnreError::MessageWithLocation(
+                                return Err(AnreError::MessageWithPosition(
                                     "Specified number of repetitions does not support lazy mode, i.e. '{m}?' is not allowed.".to_owned(), self.last_range));
                             }
 
@@ -322,9 +322,9 @@ impl Parser<'_> {
                                 FunctionName::RepeatFrom
                             }
                         }
-                        Repetition::Range(m, n) => {
+                        Repetition::RepeatRange(m, n) => {
                             if *lazy && m == n {
-                                return Err(AnreError::MessageWithLocation(
+                                return Err(AnreError::MessageWithPosition(
                                     "Specified number of repetitions does not support lazy mode, i.e. '{m,m}?' is not allowed.".to_owned(), self.last_range));
                             }
 
@@ -388,11 +388,11 @@ impl Parser<'_> {
         // - group
         // - back reference
         let expression = match self.peek_token(0).unwrap() {
-            Token::StartAssertion => {
+            Token::LineAssertionStart => {
                 self.next_token(); // consume '^'
                 Expression::AnchorAssertion(AnchorAssertionName::Start)
             }
-            Token::EndAssertion => {
+            Token::LineAssertionEnd => {
                 self.next_token(); // consume '$'
                 Expression::AnchorAssertion(AnchorAssertionName::End)
             }
@@ -425,7 +425,7 @@ impl Parser<'_> {
                 };
                 Expression::FunctionCall(Box::new(function_call))
             }
-            Token::GroupStart | Token::NonCapturing | Token::NamedCapture(_) => {
+            Token::GroupStart | Token::NonCaptureGroup | Token::NamedCaptureGroup(_) => {
                 self.parse_group()?
             }
             Token::BackReferenceNumber(index_ref) => {
@@ -433,7 +433,7 @@ impl Parser<'_> {
                 self.next_token(); // consume '\num'
                 Expression::BackReference(BackReference::Index(index))
             }
-            Token::BackReferenceIdentifier(name_ref) => {
+            Token::BackReferenceName(name_ref) => {
                 let name = name_ref.to_owned();
                 self.next_token(); // consume '\k<name>'
                 Expression::BackReference(BackReference::Name(name))
@@ -473,11 +473,11 @@ impl Parser<'_> {
                 };
                 Expression::FunctionCall(Box::new(function_call))
             }
-            Token::NonCapturing => {
+            Token::NonCaptureGroup => {
                 // regex non-capturing == ANRE group
                 expression
             }
-            Token::NamedCapture(name) => {
+            Token::NamedCaptureGroup(name) => {
                 // named capture group
                 let function_call = FunctionCall {
                     name: FunctionName::Name,
@@ -525,7 +525,7 @@ impl Parser<'_> {
                 Literal::Special(SpecialCharName::CharAny)
             }
             _ => {
-                return Err(AnreError::MessageWithLocation(
+                return Err(AnreError::MessageWithPosition(
                     "Expect a literal.".to_owned(),
                     self.last_range,
                 ));
@@ -577,7 +577,7 @@ impl Parser<'_> {
                     elements.push(CharSetElement::PresetCharSet(preset_charset_name));
                 }
                 _ => {
-                    return Err(AnreError::MessageWithLocation(
+                    return Err(AnreError::MessageWithPosition(
                         "Unsupported char set element.".to_owned(),
                         self.last_range,
                     ));
@@ -729,13 +729,13 @@ repeat_from_lazy('z', 11)"#
         // err: '{m}?' is not allowed
         assert!(matches!(
             parse_from_str(r#"a{3}?"#,),
-            Err(AnreError::MessageWithLocation(_, _))
+            Err(AnreError::MessageWithPosition(_, _))
         ));
 
         // err: '{m,m}?' is not allowed
         assert!(matches!(
             parse_from_str(r#"a{3,3}?"#,),
-            Err(AnreError::MessageWithLocation(_, _))
+            Err(AnreError::MessageWithPosition(_, _))
         ));
     }
 

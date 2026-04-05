@@ -1,79 +1,116 @@
-// Copyright (c) 2025 Hemashushu <hippospark@gmail.com>, All rights reserved.
+// Copyright (c) 2026 Hemashushu <hippospark@gmail.com>, All rights reserved.
 //
 // This Source Code Form is subject to the terms of
 // the Mozilla Public License version 2.0 and additional exceptions.
 // For more details, see the LICENSE, LICENSE.additional, and CONTRIBUTING files.
 
-// Syntax Summary:
+// Regular Expression syntax summary:
 //
-// Meta characters and their meanings:
+// Meta characters:
 //
-// - [ ]      Character set
-// - [^ ]     Negated character set
-// - {m}      Exact repetition (m times)
-// - {m,n}    Repetition range (m to n times)
-// - {m,}     At least m repetitions
-// - (xyz)    Grouping
-// - *        Zero or more repetitions
-// - +        One or more repetitions
-// - ?        Optional or lazy repetition
-// - |        Logical OR
-// - ^        Start-of-line assertion
-// - $        End-of-line assertion
-// - .        Any character except newline (\r and \n)
-// - \        Escape character for special symbols
+// | Meta      | Description                                  |
+// |-----------|----------------------------------------------|
+// | `[...]`   | Character set                                |
+// | `[^...]`  | Negative character set                       |
+// | `{`m}     | Exact repetition (m times)                   |
+// | `{`m,n}   | Repetition range (from m to n)               |
+// | `{`m,}    | Repetition from m to infinity                |
+// | `(...)`   | Grouping with index capture                  |
+// | `*`       | Zero or more repetitions                     |
+// | `+`       | One or more repetitions                      |
+// | `?`       | Optional or lazy repetition                  |
+// | `|`       | Logical OR                                   |
+// | `^`       | Start-of-line assertion                      |
+// | `$`       | End-of-line assertion                        |
+// | `.`       | Any character except newline (`\r` and `\n`) |
+// | `\...`    | Escape character for special symbols         |
 //
-// Notes on escaping meta characters:
-// Meta characters `( ) { } [ ] + * ? . | ^ $ \` must be escaped when used literally, e.g., `\(`, `\*`, and `\.`.
-// In character sets, only `]` and `\` need escaping. The hyphen `-` must be escaped unless it is the first or last character in the set, e.g., `[ab-]`, `[a\-b]`.
+// About the meta characters escaping:
+//
+// Meta characters `( ) { } [ ] + * ? . | ^ $ \` must be escaped when
+// they are used as literal,
+//
+// e.g.,
+//
+// - `\(`
+// - `\*`
+// - `\\`
+//
+// In character sets, only `]` and `\` need escaping, and
+// the hyphen `-` must be escaped unless it is the first or the
+// last character in the set,
+//
+// e.g.,
+//
+// - `[a\-b]`
+// - `[ab-]`
+// - `[-ab]`
 //
 // Escaped characters:
 //
-// - \t       Horizontal tab
-// - \n       Newline
-// - \r       Carriage return
-// - \u{hhhh} Unicode character (hexadecimal code point)
+// | Escaped char | Description                                 |
+// |--------------|---------------------------------------------|
+// | `\t`         | Horizontal tab                              |
+// | `\n`         | Newline                                     |
+// | `\r`         | Carriage return                             |
+// | `\u{hhhh}`   | Unicode character (hexadecimal code point)  |
 //
 // Unsupported escape sequences:
-// - \f       Form feed
-// - \v       Vertical tab
-// - \0       Null character
+//
+// | Escaped char | Description                                 |
+// |--------------|---------------------------------------------|
+// | `\f`         | Form feed                                   |
+// | `\v`         | Vertical tab                                |
+// | `\0`         | Null character                              |
 //
 // Preset character sets:
 //
-// - \w       Alphanumeric characters: [a-zA-Z0-9_]
-// - \W       Negated \w: [^\w]
-// - \d       Digits: [0-9]
-// - \D       Negated \d: [^\d]
-// - \s       Whitespace characters: [ \t\r\n\v\f]
-// - \S       Negated \s: [^\s]
+// | Preset char | Description                             |
+// |-------------|-----------------------------------------|
+// | `\w`        | Alphanumeric characters: `[a-zA-Z0-9_]` |
+// | `\W`        | Negated \w: `[^\w]`                     |
+// | `\d`        | Digits: `[0-9]`                         |
+// | `\D`        | Negated \d: `[^\d]`                     |
+// | `\s`        | Whitespace characters: `[ \t\r\n\v\f]`  |
+// | `\S`        | Negated \s: `[^\s]`                     |
 //
 // Boundary assertions:
-// - \b       Word boundary
-// - \B       Not a word boundary
+//
+// | Boundary assertion | Description         |
+// |--------------------|---------------------|
+// | `\b`               | Word boundary       |
+// | `\B`               | Not a word boundary |
 //
 // Non-capturing groups:
-// - (?:...)  Non-capturing group
+//
+// `(?:...)`
 //
 // Named capture groups:
-// - (?<name>...)  Named group with identifier `name`
+//
+// `(?<name>...)`
 //
 // Backreferences:
-// - \number  Backreference by group number, e.g., `\1`, `\2`
-// - \k<name> Backreference by group name
+//
+// | Type       |  Description                                 |
+// |------------|----------------------------------------------|
+// | `\number`  | Backreference by group number, e.g., `\1`    |
+// | `\k<name>` | Backreference by group name, e.g., `\k<foo>` |
 //
 // Lookaround assertions:
 //
-// - (?=...)  Positive lookahead
-// - (?!...)  Negative lookahead
-// - (?<=...) Positive lookbehind
-// - (?<!...) Negative lookbehind
+// | Type       | Description         |
+// |------------|---------------------|
+// | `(?=...)`  | Positive lookahead  |
+// | `(?!...)`  | Negative lookahead  |
+// | `(?<=...)` | Positive lookbehind |
+// | `(?<!...)` | Negative lookbehind |
 
 use crate::{
-    charwithposition::{CharWithPosition, CharsWithPositionIter},
-    location::Location,
-    peekableiter::PeekableIter,
-    AnreError,
+    char_with_position::{CharWithPosition, CharsWithPositionIter},
+    error::AnreError,
+    peekable_iter::PeekableIter,
+    position::Position,
+    range::Range,
 };
 
 use super::token::{Repetition, Token, TokenWithRange};
@@ -83,24 +120,27 @@ pub const LEXER_PEEK_CHAR_MAX_COUNT: usize = 3;
 pub fn lex_from_str(s: &str) -> Result<Vec<TokenWithRange>, AnreError> {
     let mut chars = s.chars();
     let mut char_position_iter = CharsWithPositionIter::new(&mut chars);
-    let mut peekable_char_position_iter =
-        PeekableIter::new(&mut char_position_iter, LEXER_PEEK_CHAR_MAX_COUNT);
+    let mut peekable_char_position_iter = PeekableIter::new(&mut char_position_iter);
     let mut lexer = Lexer::new(&mut peekable_char_position_iter);
     lexer.lex()
 }
 
 struct Lexer<'a> {
     upstream: &'a mut PeekableIter<'a, CharWithPosition>,
-    last_position: Location, // last position consumed
-    saved_positions: Vec<Location>,
+
+    // Position of the most recently consumed character.
+    last_position: Position,
+
+    // Temporary start positions used while building token ranges.
+    position_stack: Vec<Position>,
 }
 
 impl<'a> Lexer<'a> {
     fn new(upstream: &'a mut PeekableIter<'a, CharWithPosition>) -> Self {
         Self {
             upstream,
-            last_position: Location::new_position(/*0,*/ 0, 0, 0),
-            saved_positions: vec![],
+            last_position: Position::default(),
+            position_stack: vec![],
         }
     }
 
@@ -124,28 +164,37 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn peek_char_and_equals(&self, offset: usize, expected_char: char) -> bool {
-        matches!(
-            self.upstream.peek(offset),
-            Some(CharWithPosition { character, .. }) if character == &expected_char)
-    }
-
-    fn peek_position(&self, offset: usize) -> Option<&Location> {
+    fn peek_position(&self, offset: usize) -> Option<&Position> {
         match self.upstream.peek(offset) {
             Some(CharWithPosition { position, .. }) => Some(position),
             None => None,
         }
     }
 
-    fn push_peek_position(&mut self) {
-        self.saved_positions.push(*self.peek_position(0).unwrap());
+    /// Returns `true` when the character at `offset` matches `expected_char`.
+    fn peek_char_and_equals(&self, offset: usize, expected_char: char) -> bool {
+        matches!(
+            self.upstream.peek(offset),
+            Some(CharWithPosition { character, .. }) if character == &expected_char)
     }
 
-    fn pop_saved_position(&mut self) -> Location {
-        self.saved_positions.pop().unwrap()
+    /// Pushes the position of the character most recently consumed by `next_char()`.
+    fn push_last_position_into_stack(&mut self) {
+        self.position_stack.push(self.last_position);
     }
 
-    fn expect_char(
+    /// Pushes the current input position without consuming a character.
+    fn push_peek_position_into_stack(&mut self) {
+        let position = *self.peek_position(0).unwrap();
+        self.position_stack.push(position);
+    }
+
+    /// Pops a previously saved token start position.
+    fn pop_position_from_stack(&mut self) -> Position {
+        self.position_stack.pop().unwrap()
+    }
+
+    fn consume_char_and_assert(
         &mut self,
         expected_char: char,
         char_description: &str,
@@ -155,14 +204,14 @@ impl<'a> Lexer<'a> {
                 if ch == expected_char {
                     Ok(())
                 } else {
-                    Err(AnreError::MessageWithLocation(
-                        format!("Expect char: {}.", char_description),
+                    Err(AnreError::MessageWithPosition(
+                        format!("Expect char {}.", char_description),
                         self.last_position,
                     ))
                 }
             }
             None => Err(AnreError::UnexpectedEndOfDocument(format!(
-                "Expect char: {}.",
+                "Expect char {}.",
                 char_description
             ))),
         }
@@ -180,236 +229,249 @@ impl Lexer<'_> {
                     let mut twrs = self.lex_charset()?;
                     token_with_ranges.append(&mut twrs);
                 }
-                ']' => {
-                    // charset end
-                    self.next_char(); // consume ']'
-                    token_with_ranges.push(TokenWithRange::from_position_and_length(
-                        Token::CharSetEnd,
-                        &self.last_position,
-                        1,
-                    ));
-                }
                 '{' => {
                     // repetition
                     let twr = self.lex_repetition()?;
                     token_with_ranges.push(twr);
                 }
                 '(' if self.peek_char_and_equals(1, '?') => {
-                    if matches!(self.peek_char(2), Some(':' | '<' | '=' | '!')) {
-                        self.push_peek_position();
+                    // `(?...)` group, which can be non-capturing, lookahead, lookbehind, or named capture group
+                    //
+                    // - `(?:...)` Non-capturing group
+                    // - `(?<name>...)` Named capture group
+                    // - `(?<=...)` Positive lookbehind
+                    // - `(?<!...)` Negative lookbehind
+                    // - `(?=...)` Positive lookahead
+                    // - `(?!...)` Negative lookahead
 
-                        self.next_char(); // consume '('
-                        self.next_char(); // consume '?'
+                    self.push_peek_position_into_stack();
 
-                        match self.peek_char(0).unwrap() {
-                            '<' => {
-                                match self.peek_char(1) {
-                                    Some('=') => {
-                                        // look behind group
-                                        self.next_char(); // consume '<'
-                                        self.next_char(); // consume '='
-                                        token_with_ranges.push(TokenWithRange {
-                                            token: Token::LookBehind,
-                                            range: Location::from_position_and_length(
-                                                &self.pop_saved_position(),
-                                                4,
-                                            ),
-                                        });
-                                    }
-                                    Some('!') => {
-                                        // negative look behind group
-                                        self.next_char(); // consume '<'
-                                        self.next_char(); // consume '='
-                                        token_with_ranges.push(TokenWithRange {
-                                            token: Token::LookBehindNegative,
-                                            range: Location::from_position_and_length(
-                                                &self.pop_saved_position(),
-                                                4,
-                                            ),
-                                        });
-                                    }
-                                    _ => {
-                                        // named capture group or incomplete lookbehind assertion
-                                        let name = self.lex_identifier()?;
-                                        token_with_ranges.push(TokenWithRange {
-                                            token: Token::NamedCapture(name),
-                                            range: Location::from_position_pair_with_end_included(
-                                                &self.pop_saved_position(),
-                                                &self.last_position,
-                                            ),
-                                        });
+                    match self.peek_char(2) {
+                        Some(':' | '<' | '=' | '!') => {
+                            self.next_char(); // consume '('
+                            self.next_char(); // consume '?'
+
+                            match self.peek_char(0).unwrap() {
+                                ':' => {
+                                    // non-capturing
+                                    self.next_char(); // consule ':'
+                                    token_with_ranges.push(TokenWithRange {
+                                        token: Token::NonCaptureGroupStart,
+                                        range: Range::new(
+                                            &self.pop_position_from_stack(),
+                                            &self.last_position,
+                                        ),
+                                    });
+                                }
+                                '<' => {
+                                    match self.peek_char(1) {
+                                        Some('=') => {
+                                            // look behind group
+                                            self.next_char(); // consume '<'
+                                            self.next_char(); // consume '='
+                                            token_with_ranges.push(TokenWithRange {
+                                                token: Token::LookBehindGroupStart,
+                                                range: Range::new(
+                                                    &self.pop_position_from_stack(),
+                                                    &self.last_position,
+                                                ),
+                                            });
+                                        }
+                                        Some('!') => {
+                                            // negative look behind group
+                                            self.next_char(); // consume '<'
+                                            self.next_char(); // consume '='
+                                            token_with_ranges.push(TokenWithRange {
+                                                token: Token::LookBehindNegativeGroupStart,
+                                                range: Range::new(
+                                                    &self.pop_position_from_stack(),
+                                                    &self.last_position,
+                                                ),
+                                            });
+                                        }
+                                        _ => {
+                                            // named capture group or incomplete lookbehind assertion
+                                            let name = self.lex_capture_group_name()?;
+                                            token_with_ranges.push(TokenWithRange {
+                                                token: Token::NamedCaptureGroupStart(name),
+                                                range: Range::new(
+                                                    &self.pop_position_from_stack(),
+                                                    &self.last_position,
+                                                ),
+                                            });
+                                        }
                                     }
                                 }
+                                '=' => {
+                                    // look ahead group
+                                    self.next_char(); // consule '='
+                                    token_with_ranges.push(TokenWithRange {
+                                        token: Token::LookAheadGroupStart,
+                                        range: Range::new(
+                                            &self.pop_position_from_stack(),
+                                            &self.last_position,
+                                        ),
+                                    });
+                                }
+                                '!' => {
+                                    // negative look ahead group
+                                    self.next_char(); // consule '!'
+                                    token_with_ranges.push(TokenWithRange {
+                                        token: Token::LookAheadNegativeGroupStart,
+                                        range: Range::new(
+                                            &self.pop_position_from_stack(),
+                                            &self.last_position,
+                                        ),
+                                    });
+                                }
+
+                                _ => unreachable!(),
                             }
-                            '=' => {
-                                // look ahead group
-                                self.next_char(); // consule '='
-                                token_with_ranges.push(TokenWithRange {
-                                    token: Token::LookAhead,
-                                    range: Location::from_position_and_length(
-                                        &self.pop_saved_position(),
-                                        3,
-                                    ),
-                                });
-                            }
-                            '!' => {
-                                // negative look ahead group
-                                self.next_char(); // consule '!'
-                                token_with_ranges.push(TokenWithRange {
-                                    token: Token::LookAheadNegative,
-                                    range: Location::from_position_and_length(
-                                        &self.pop_saved_position(),
-                                        3,
-                                    ),
-                                });
-                            }
-                            ':' => {
-                                // non-capturing
-                                self.next_char(); // consule ':'
-                                token_with_ranges.push(TokenWithRange {
-                                    token: Token::NonCapturing,
-                                    range: Location::from_position_and_length(
-                                        &self.pop_saved_position(),
-                                        3,
-                                    ),
-                                });
-                            }
-                            _ => unreachable!(),
                         }
-                    } else {
-                        return Err(AnreError::MessageWithLocation(
-                            "Incomplete group.".to_owned(),
-                            Location::from_position_and_length(&self.last_position, 2),
-                        ));
+                        Some(_) => {
+                            return Err(AnreError::MessageWithRange(
+                                "Invalid group syntax.".to_owned(),
+                                Range::new(
+                                    &self.pop_position_from_stack(),
+                                    self.peek_position(2).unwrap(),
+                                ),
+                            ));
+                        }
+                        None => {
+                            return Err(AnreError::UnexpectedEndOfDocument(
+                                "Incomplete group.".to_owned(),
+                            ));
+                        }
                     }
                 }
                 '(' => {
+                    // group start
                     self.next_char(); // consume '('
-                    token_with_ranges.push(TokenWithRange::from_position_and_length(
+                    token_with_ranges.push(TokenWithRange::new(
                         Token::GroupStart,
-                        &self.last_position,
-                        1,
+                        Range::from_single_position(&self.last_position),
                     ));
                 }
                 ')' => {
+                    // group end
                     self.next_char(); // consume ')'
-                    token_with_ranges.push(TokenWithRange::from_position_and_length(
+                    token_with_ranges.push(TokenWithRange::new(
                         Token::GroupEnd,
-                        &self.last_position,
-                        1,
+                        Range::from_single_position(&self.last_position),
                     ));
                 }
                 '?' if self.peek_char_and_equals(1, '?') => {
-                    self.push_peek_position();
+                    // lazy optional `??`
+                    self.push_peek_position_into_stack();
 
                     self.next_char(); // consume '?'
                     self.next_char(); // consume '?'
 
-                    token_with_ranges.push(TokenWithRange::from_position_and_length(
+                    token_with_ranges.push(TokenWithRange::new(
                         Token::OptionalLazy,
-                        &self.pop_saved_position(),
-                        2,
+                        Range::new(&self.pop_position_from_stack(), &self.last_position),
                     ));
                 }
                 '?' => {
+                    // greedy optional '?'
                     self.next_char(); // consume '?'
 
-                    token_with_ranges.push(TokenWithRange::from_position_and_length(
+                    token_with_ranges.push(TokenWithRange::new(
                         Token::Optional,
-                        &self.last_position,
-                        1,
+                        Range::from_single_position(&self.last_position),
                     ));
                 }
                 '+' if self.peek_char_and_equals(1, '?') => {
-                    self.push_peek_position();
+                    // lazy one-or-more `+?`
+                    self.push_peek_position_into_stack();
 
                     self.next_char(); // consume '+'
                     self.next_char(); // consume '?'
 
-                    token_with_ranges.push(TokenWithRange::from_position_and_length(
+                    token_with_ranges.push(TokenWithRange::new(
                         Token::OneOrMoreLazy,
-                        &self.pop_saved_position(),
-                        2,
+                        Range::new(&self.pop_position_from_stack(), &self.last_position),
                     ));
                 }
                 '+' => {
+                    // greedy one-or-more '+'
                     self.next_char(); // consume '+'
 
-                    token_with_ranges.push(TokenWithRange::from_position_and_length(
+                    token_with_ranges.push(TokenWithRange::new(
                         Token::OneOrMore,
-                        &self.last_position,
-                        1,
+                        Range::from_single_position(&self.last_position),
                     ));
                 }
                 '*' if self.peek_char_and_equals(1, '?') => {
-                    self.push_peek_position();
+                    // lazy zero-or-more `*?`
+                    self.push_peek_position_into_stack();
 
                     self.next_char(); // consume '*'
                     self.next_char(); // consume '?'
 
-                    token_with_ranges.push(TokenWithRange::from_position_and_length(
+                    token_with_ranges.push(TokenWithRange::new(
                         Token::ZeroOrMoreLazy,
-                        &self.pop_saved_position(),
-                        2,
+                        Range::new(&self.pop_position_from_stack(), &self.last_position),
                     ));
                 }
                 '*' => {
+                    // greedy zero-or-more '*'
                     self.next_char(); // consume '*'
 
-                    token_with_ranges.push(TokenWithRange::from_position_and_length(
+                    token_with_ranges.push(TokenWithRange::new(
                         Token::ZeroOrMore,
-                        &self.last_position,
-                        1,
+                        Range::from_single_position(&self.last_position),
                     ));
                 }
                 '^' => {
+                    // line start assertion
                     self.next_char(); // consume '^'
 
-                    token_with_ranges.push(TokenWithRange::from_position_and_length(
-                        Token::StartAssertion,
-                        &self.last_position,
-                        1,
+                    token_with_ranges.push(TokenWithRange::new(
+                        Token::LineAssertionStart,
+                        Range::from_single_position(&self.last_position),
                     ));
                 }
                 '$' => {
+                    // line end assertion
                     self.next_char(); // consume '$'
 
-                    token_with_ranges.push(TokenWithRange::from_position_and_length(
-                        Token::EndAssertion,
-                        &self.last_position,
-                        1,
+                    token_with_ranges.push(TokenWithRange::new(
+                        Token::LineAssertionEnd,
+                        Range::from_single_position(&self.last_position),
                     ));
                 }
                 '.' => {
+                    // dot, matches any char except newline
                     self.next_char(); // consume '.'
 
-                    token_with_ranges.push(TokenWithRange::from_position_and_length(
+                    token_with_ranges.push(TokenWithRange::new(
                         Token::Dot,
-                        &self.last_position,
-                        1,
+                        Range::from_single_position(&self.last_position),
                     ));
                 }
                 '|' => {
+                    // logical OR
                     self.next_char(); // consume '|'
 
-                    token_with_ranges.push(TokenWithRange::from_position_and_length(
+                    token_with_ranges.push(TokenWithRange::new(
                         Token::LogicOr,
-                        &self.last_position,
-                        1,
+                        Range::from_single_position(&self.last_position),
                     ));
                 }
                 '\\' => {
-                    let twr = self.lex_main_escaping()?;
+                    // escape char, e.g. `\t`, `\n`, `\r`, `\u{hhhh}`, `\w`, `\d`, `\s`, etc.
+                    let twr = self.lex_escape_sequence()?;
                     token_with_ranges.push(twr);
                 }
                 _ => {
+                    // ordinary char
                     let c = *current_char;
                     self.next_char(); // consume current char
 
-                    token_with_ranges.push(TokenWithRange::from_position_and_length(
+                    token_with_ranges.push(TokenWithRange::new(
                         Token::Char(c),
-                        &self.last_position,
-                        1,
+                        Range::from_single_position(&self.last_position),
                     ));
                 }
             }
@@ -419,42 +481,39 @@ impl Lexer<'_> {
     }
 
     fn lex_charset(&mut self) -> Result<Vec<TokenWithRange>, AnreError> {
-        // [.....]?  //
+        // ```diagram
+        // [^....]?  //
         // ^      ^__// to here
         // |_________// current char, validated
-        //
-        // also `[^.....]`
+        // ```
 
         let mut token_with_ranges = vec![];
 
-        self.push_peek_position();
+        self.push_peek_position_into_stack();
 
         self.next_char(); // consume '['
 
         let charset_start = if self.peek_char_and_equals(0, '^') {
             self.next_char(); // consume '^'
-            TokenWithRange::from_position_and_length(
+            TokenWithRange::new(
                 Token::CharSetStartNegative,
-                &self.pop_saved_position(),
-                2,
+                Range::new(&self.pop_position_from_stack(), &self.last_position),
             )
         } else {
-            TokenWithRange::from_position_and_length(
+            TokenWithRange::new(
                 Token::CharSetStart,
-                &self.pop_saved_position(),
-                1,
+                Range::new(&self.pop_position_from_stack(), &self.last_position),
             )
         };
 
         token_with_ranges.push(charset_start);
 
-        // while let Some(current_char) = self.peek_char(0) {
         loop {
             match self.peek_char(0) {
                 Some(current_char) => {
                     match current_char {
                         '\\' => {
-                            let twr = self.lex_charset_escaping()?;
+                            let twr = self.lex_escape_sequence_within_charset()?;
                             token_with_ranges.push(twr);
                         }
                         ']' => {
@@ -464,10 +523,9 @@ impl Lexer<'_> {
                             let c = *current_char;
                             self.next_char(); // consume current char
 
-                            token_with_ranges.push(TokenWithRange::from_position_and_length(
+                            token_with_ranges.push(TokenWithRange::new(
                                 Token::Char(c),
-                                &self.last_position,
-                                1,
+                                Range::from_single_position(&self.last_position),
                             ));
                         }
                     }
@@ -482,17 +540,28 @@ impl Lexer<'_> {
 
         self.next_char(); // consume ']'
 
-        let charset_end =
-            TokenWithRange::from_position_and_length(Token::CharSetEnd, &self.last_position, 1);
+        let charset_end = TokenWithRange::new(
+            Token::CharSetEnd,
+            Range::from_single_position(&self.last_position),
+        );
 
         token_with_ranges.push(charset_end);
 
-        // handle the char range, e.g.
+        // Scan and parse the char ranges in the charset, and merge them into `CharRange` tokens.
+        //
+        // e.g.
+        //
+        // ```diagram
         // [a-z]
         //  ^ ^__ // to here
         //  |____ // merge from here
+        // ```
+        //
+        // Note: the char range operator '-' must be escaped when it is not the first or the last char
+        // in the charset, so there won't be any ambiguity when scanning for char ranges.
 
         if token_with_ranges.len() > 4 {
+            // reverse scanning
             let mut idx = token_with_ranges.len() - 3;
             while idx > 1 {
                 if matches!(
@@ -502,32 +571,29 @@ impl Lexer<'_> {
                         ..
                     }
                 ) {
-                    let position_start = &token_with_ranges[idx - 1].range;
-                    let position_end = &token_with_ranges[idx + 1].range;
+                    let range_start = &token_with_ranges[idx - 1].range;
+                    let range_end = &token_with_ranges[idx + 1].range;
 
                     let char_start = if let Token::Char(c) = &token_with_ranges[idx - 1].token {
                         *c
                     } else {
-                        return Err(AnreError::MessageWithLocation(
+                        return Err(AnreError::MessageWithRange(
                             "Expect a char for char range, e.g. \"A-Z\".".to_owned(),
-                            *position_start,
+                            *range_start,
                         ));
                     };
 
                     let char_end = if let Token::Char(c) = &token_with_ranges[idx + 1].token {
                         *c
                     } else {
-                        return Err(AnreError::MessageWithLocation(
+                        return Err(AnreError::MessageWithRange(
                             "Expect a char for char range, e.g. \"a-z\".".to_owned(),
-                            *position_end,
+                            *range_end,
                         ));
                     };
 
                     let token = Token::CharRange(char_start, char_end);
-                    let range = Location::from_position_pair_with_end_included(
-                        position_start,
-                        position_end,
-                    );
+                    let range = Range::merge(range_start, range_end);
                     let twr = TokenWithRange::new(token, range);
 
                     let pos = idx - 1;
@@ -544,37 +610,34 @@ impl Lexer<'_> {
         Ok(token_with_ranges)
     }
 
-    fn lex_main_escaping(&mut self) -> Result<TokenWithRange, AnreError> {
+    fn lex_escape_sequence(&mut self) -> Result<TokenWithRange, AnreError> {
+        // ```diagram
         // \xxxx?  //
         // ^    ^__// to here
         // |_______// current char, validated
-
-        self.push_peek_position();
+        // ```
+        self.push_peek_position_into_stack();
 
         self.next_char(); // consume '\'
 
         let token = match self.peek_char(0) {
-            Some(previous_char) => {
-                match previous_char {
+            Some(current_char) => {
+                match current_char {
                     // general escaped chars
-                    '\\' => {
-                        self.next_char();
-                        Token::Char('\\')
-                    }
                     't' => {
                         // horizontal tabulation
                         self.next_char();
                         Token::Char('\t')
                     }
-                    'r' => {
-                        // carriage return (CR, ascii 13)
-                        self.next_char();
-                        Token::Char('\r')
-                    }
                     'n' => {
                         // new line character (line feed, LF, ascii 10)
                         self.next_char();
                         Token::Char('\n')
+                    }
+                    'r' => {
+                        // carriage return (CR, ascii 13)
+                        self.next_char();
+                        Token::Char('\r')
                     }
                     'u' => {
                         // unicode code point, e.g. '\u{2d}', '\u{6587}'
@@ -584,39 +647,44 @@ impl Lexer<'_> {
                             let c = self.unescape_unicode()?;
                             Token::Char(c)
                         } else {
-                            return Err(AnreError::MessageWithLocation(
-                                "Missing the brace \"{\" for unicode escape sequence.".to_owned(),
-                                self.last_position.move_position_forward(),
+                            return Err(AnreError::MessageWithPosition(
+                                "Missing opening brace for unicode escape sequence.".to_owned(),
+                                self.last_position,
                             ));
                         }
                     }
                     // meta chars
-                    '(' | ')' | '{' | '}' | '[' | ']' | '+' | '*' | '?' | '.' | '|' | '^' | '$' => {
-                        let c = *previous_char;
+                    '(' | ')' | '{' | '}' | '[' | ']' | '+' | '*' | '?' | '.' | '|' | '^' | '$'
+                    | '\\' => {
+                        let c = *current_char;
                         self.next_char();
                         Token::Char(c)
                     }
                     // preset charsets
                     'w' | 'W' | 'd' | 'D' | 's' | 'S' => {
-                        let c = *previous_char;
+                        let c = *current_char;
                         self.next_char();
                         Token::PresetCharSet(c)
                     }
                     // boundary assertions
                     'b' | 'B' => {
-                        let c = *previous_char;
+                        let c = *current_char;
                         self.next_char();
-                        Token::BoundaryAssertion(c)
+                        Token::BoundaryAssertion(if c == 'B' { true } else { false })
                     }
                     // back reference by index
                     '1'..='9' => {
-                        let num = self.lex_number()?;
+                        let num = self.lex_number_decimal()?;
                         Token::BackReferenceNumber(num)
                     }
+                    // invalid back reference group number 0
                     '0' => {
-                        return Err(AnreError::MessageWithLocation(
+                        return Err(AnreError::MessageWithRange(
                             "Cannot back-reference group 0.".to_owned(),
-                            self.last_position.move_position_forward(),
+                            Range::new(
+                                &self.pop_position_from_stack(),
+                                self.peek_position(0).unwrap(),
+                            ),
                         ));
                     }
                     // back reference by name
@@ -624,19 +692,25 @@ impl Lexer<'_> {
                         self.next_char(); // consume 'k'
 
                         if self.peek_char_and_equals(0, '<') {
-                            let s = self.lex_identifier()?;
-                            Token::BackReferenceIdentifier(s)
+                            let s = self.lex_capture_group_name()?;
+                            Token::BackReferenceName(s)
                         } else {
-                            return Err(AnreError::MessageWithLocation(
-                                "Missing the angle bracket \"<\" for group name.".to_owned(),
-                                self.last_position.move_position_forward(),
+                            return Err(AnreError::MessageWithRange(
+                                "Missing opening angle bracket for group name.".to_owned(),
+                                Range::new(
+                                    &self.pop_position_from_stack(),
+                                    self.peek_position(0).unwrap(),
+                                ),
                             ));
                         }
                     }
                     _ => {
-                        return Err(AnreError::MessageWithLocation(
-                            format!("Unsupported escape char '{}'.", previous_char),
-                            Location::from_position_and_length(&self.pop_saved_position(), 2),
+                        return Err(AnreError::MessageWithRange(
+                            format!("Unsupported escape char '{}'.", current_char),
+                            Range::new(
+                                &self.pop_position_from_stack(),
+                                self.peek_position(0).unwrap(),
+                            ),
                         ));
                     }
                 }
@@ -649,82 +723,111 @@ impl Lexer<'_> {
             }
         };
 
-        let token_range = Location::from_position_pair_with_end_included(
-            &self.pop_saved_position(),
-            &self.last_position,
-        );
+        let token_range = Range::new(&&self.pop_position_from_stack(), &self.last_position);
 
         Ok(TokenWithRange::new(token, token_range))
     }
 
-    fn lex_charset_escaping(&mut self) -> Result<TokenWithRange, AnreError> {
+    fn lex_escape_sequence_within_charset(&mut self) -> Result<TokenWithRange, AnreError> {
+        // ```diagram
         // [\xxxx...]  //
         //  ^    ^_____// to here
         //  |__________// current char, validated
+        // ```
 
-        self.push_peek_position();
+        self.push_peek_position_into_stack();
 
         self.next_char(); // consume '\'
 
-        let token = match self.next_char() {
-            Some(previous_char) => {
-                match previous_char {
+        let token = match self.peek_char(0) {
+            Some(current_char) => {
+                match current_char {
                     // general escaped chars
-                    '\\' => Token::Char('\\'),
-                    't' => Token::Char('\t'), // horizontal tabulation
-                    'r' => Token::Char('\r'), // carriage return (CR, ascii 13)
-                    'n' => Token::Char('\n'), // new line character (line feed, LF, ascii 10)
+                    't' => {
+                        // horizontal tabulation
+                        self.next_char();
+                        Token::Char('\t')
+                    }
+                    'n' => {
+                        // new line character (line feed, LF, ascii 10)
+                        self.next_char();
+                        Token::Char('\n')
+                    }
+                    'r' => {
+                        // carriage return (CR, ascii 13)
+                        self.next_char();
+                        Token::Char('\r')
+                    }
                     'u' => {
                         // unicode code point, e.g. '\u{2d}', '\u{6587}'
+                        self.next_char(); // consume 'u'
+
                         if self.peek_char_and_equals(0, '{') {
                             let c = self.unescape_unicode()?;
                             Token::Char(c)
                         } else {
-                            return Err(AnreError::MessageWithLocation(
-                                "Missing the brace \"{\" for unicode escape sequence.".to_owned(),
-                                self.last_position.move_position_forward(),
+                            return Err(AnreError::MessageWithRange(
+                                "Missing opening brace for unicode escape sequence.".to_owned(),
+                                Range::new(&self.pop_position_from_stack(), &self.last_position),
                             ));
                         }
                     }
+
                     // meta chars
                     //
-                    // note:
-                    // in the charset, only the meta char ']' is required to be
-                    // escaped, but the escapes of other meta chars are also supported
-                    // for consistency.
-                    '(' | ')' | '{' | '}' | '[' | ']' | '+' | '*' | '?' | '.' | '|' | '^' | '$' => {
-                        Token::Char(previous_char)
+                    // in the charset, only the meta char ']', '\' and (non-first or non-last) '-'
+                    // are required to be escaped,
+                    // but the escapes of meta chars are also supported for consistency.
+                    '(' | ')' | '{' | '}' | '[' | ']' | '+' | '*' | '?' | '.' | '|' | '^' | '$'
+                    | '\\' => {
+                        let c = *current_char;
+                        self.next_char();
+                        Token::Char(c)
                     }
                     // preset charsets
-                    //
-                    // note:
-                    // only positive preset charsets are supported
-                    'w' | 'd' | 's' => Token::PresetCharSet(previous_char),
+                    'w' | 'd' | 's' => {
+                        let c = *current_char;
+                        self.next_char();
+                        Token::PresetCharSet(c)
+                    }
+                    // negative preset charsets, only positive preset charsets are supported
                     'W' | 'D' | 'S' => {
-                        return Err(AnreError::MessageWithLocation(
+                        return Err(AnreError::MessageWithRange(
                             format!(
                                 "Negative char class '{}' is not supported in charset.",
-                                previous_char
+                                current_char
                             ),
-                            Location::from_position_and_length(&self.pop_saved_position(), 2),
+                            Range::new(
+                                &self.pop_position_from_stack(),
+                                self.peek_position(0).unwrap(),
+                            ),
                         ));
                     }
                     'b' | 'B' => {
-                        return Err(AnreError::MessageWithLocation(
+                        return Err(AnreError::MessageWithRange(
                             "Boundary assertions are not supported in charset.".to_owned(),
-                            Location::from_position_and_length(&self.pop_saved_position(), 2),
+                            Range::new(
+                                &self.pop_position_from_stack(),
+                                &self.peek_position(0).unwrap(),
+                            ),
                         ));
                     }
                     '0'..='9' | 'k' => {
-                        return Err(AnreError::MessageWithLocation(
+                        return Err(AnreError::MessageWithRange(
                             "Back references are not supported in charset.".to_owned(),
-                            Location::from_position_and_length(&self.pop_saved_position(), 2),
+                            Range::new(
+                                &self.pop_position_from_stack(),
+                                &self.peek_position(0).unwrap(),
+                            ),
                         ));
                     }
                     _ => {
-                        return Err(AnreError::MessageWithLocation(
-                            format!("Unsupported escape char '{}' in charset.", previous_char),
-                            Location::from_position_and_length(&self.pop_saved_position(), 2),
+                        return Err(AnreError::MessageWithRange(
+                            format!("Unsupported escape char '{}' in charset.", current_char),
+                            Range::new(
+                                &self.pop_position_from_stack(),
+                                &self.peek_position(0).unwrap(),
+                            ),
                         ));
                     }
                 }
@@ -737,37 +840,39 @@ impl Lexer<'_> {
             }
         };
 
-        let token_range = Location::from_position_pair_with_end_included(
-            &self.pop_saved_position(),
-            &self.last_position,
-        );
+        let token_range = Range::new(&&self.pop_position_from_stack(), &self.last_position);
 
         Ok(TokenWithRange::new(token, token_range))
     }
 
     fn unescape_unicode(&mut self) -> Result<char, AnreError> {
+        // ```diagram
         // \u{6587}?  //
         //   ^     ^__// to here
         //   |________// current char, validated
+        // ```
 
-        self.push_peek_position();
+        self.push_peek_position_into_stack();
 
         self.next_char(); // comsume char '{'
 
-        let mut codepoint_string = String::new();
+        let mut codepoint_buffer = String::new();
 
         loop {
-            match self.next_char() {
-                Some(previous_char) => match previous_char {
+            match self.peek_char(0) {
+                Some(current_char) => match current_char {
                     '}' => break,
-                    '0'..='9' | 'a'..='f' | 'A'..='F' => codepoint_string.push(previous_char),
+                    '0'..='9' | 'a'..='f' | 'A'..='F' => {
+                        codepoint_buffer.push(*current_char);
+                        self.next_char(); // consume char
+                    }
                     _ => {
-                        return Err(AnreError::MessageWithLocation(
+                        return Err(AnreError::MessageWithPosition(
                             format!(
                                 "Invalid character '{}' for unicode escape sequence.",
-                                previous_char
+                                current_char
                             ),
-                            self.last_position,
+                            *self.peek_position(0).unwrap(),
                         ));
                     }
                 },
@@ -779,31 +884,30 @@ impl Lexer<'_> {
                 }
             }
 
-            if codepoint_string.len() > 6 {
+            if codepoint_buffer.len() > 6 {
                 break;
             }
         }
 
-        let codepoint_range = Location::from_position_pair_with_end_included(
-            &self.pop_saved_position(),
-            &self.last_position,
-        );
-
-        if codepoint_string.len() > 6 {
-            return Err(AnreError::MessageWithLocation(
+        if codepoint_buffer.len() > 6 {
+            return Err(AnreError::MessageWithRange(
                 "Unicode point code exceeds six digits.".to_owned(),
-                codepoint_range,
+                Range::new(&self.position_stack.pop().unwrap(), &self.last_position),
             ));
         }
 
-        if codepoint_string.is_empty() {
-            return Err(AnreError::MessageWithLocation(
+        self.consume_char_and_assert('}', "closing brace for unicode escape sequence")?;
+
+        let codepoint_range = Range::new(&&self.pop_position_from_stack(), &self.last_position);
+
+        if codepoint_buffer.is_empty() {
+            return Err(AnreError::MessageWithRange(
                 "Empty unicode code point.".to_owned(),
                 codepoint_range,
             ));
         }
 
-        let codepoint = u32::from_str_radix(&codepoint_string, 16).unwrap();
+        let codepoint = u32::from_str_radix(&codepoint_buffer, 16).unwrap();
 
         if let Some(c) = char::from_u32(codepoint) {
             // valid code point:
@@ -813,75 +917,31 @@ impl Lexer<'_> {
             // https://doc.rust-lang.org/std/primitive.char.html
             Ok(c)
         } else {
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithRange(
                 "Invalid unicode code point.".to_owned(),
                 codepoint_range,
             ))
         }
     }
 
-    fn lex_number(&mut self) -> Result<usize, AnreError> {
-        // 123456N  //
-        // ^     ^__// to here
-        // |________// current char, validated
-        //
-        // T = not a number || EOF
-
-        let mut num_string = String::new();
-
-        self.push_peek_position();
-
-        while let Some(current_char) = self.peek_char(0) {
-            match current_char {
-                '0'..='9' => {
-                    // valid digits for decimal number
-                    num_string.push(*current_char);
-
-                    self.next_char(); // consume digit
-                }
-                _ => {
-                    break;
-                }
-            }
-        }
-
-        if num_string.is_empty() {
-            return Err(AnreError::MessageWithLocation(
-                "Expect a number.".to_owned(),
-                self.last_position.move_position_forward(),
-            ));
-        }
-
-        let num_range = Location::from_position_pair_with_end_included(
-            &self.pop_saved_position(),
-            &self.last_position,
-        );
-
-        let num = num_string.parse::<usize>().map_err(|_| {
-            AnreError::MessageWithLocation(
-                format!("Can not convert \"{}\" to integer number.", num_string),
-                num_range,
-            )
-        })?;
-
-        Ok(num)
-    }
-
-    fn lex_identifier(&mut self) -> Result<String, AnreError> {
+    fn lex_capture_group_name(&mut self) -> Result<String, AnreError> {
+        // ```diagram
         // <name>?  //
         // ^     ^__// to here
         // |________// current char, validated
+        // ```
+
+        self.push_peek_position_into_stack();
 
         self.next_char(); // consume '<'
 
-        let mut name_string = String::new();
+        let mut name_buffer = String::new();
 
-        // while let Some(current_char) = self.peek_char(0) {
         loop {
             match self.peek_char(0) {
                 Some(current_char) => match current_char {
                     '0'..='9' | 'a'..='z' | 'A'..='Z' | '_' => {
-                        name_string.push(*current_char);
+                        name_buffer.push(*current_char);
                         self.next_char(); // consume char
                     }
                     '\u{a0}'..='\u{d7ff}' | '\u{e000}'..='\u{10ffff}' => {
@@ -917,7 +977,7 @@ impl Lexer<'_> {
                         // see also
                         // https://www.unicode.org/reports/tr31/tr31-37.html
 
-                        name_string.push(*current_char);
+                        name_buffer.push(*current_char);
                         self.next_char(); // consume char
                     }
                     '>' => {
@@ -925,72 +985,118 @@ impl Lexer<'_> {
                         break;
                     }
                     _ => {
-                        return Err(AnreError::MessageWithLocation(
-                            format!("Invalid char '{}' for identifier.", current_char),
+                        return Err(AnreError::MessageWithPosition(
+                            format!("Invalid char '{}' for capture group name.", current_char),
                             *self.peek_position(0).unwrap(),
                         ));
                     }
                 },
                 None => {
                     return Err(AnreError::UnexpectedEndOfDocument(
-                        "Incomplete identifier.".to_owned(),
+                        "Incomplete capture group name.".to_owned(),
                     ));
                 }
             }
         }
 
-        if name_string.is_empty() {
-            return Err(AnreError::MessageWithLocation(
-                "Expect an identifier".to_owned(),
-                self.last_position.move_position_forward(),
+        self.consume_char_and_assert('>', "closing angle bracket")?;
+
+        if name_buffer.is_empty() {
+            return Err(AnreError::MessageWithRange(
+                "Expect a capture group name.".to_owned(),
+                Range::new(&self.pop_position_from_stack(), &self.last_position),
             ));
         }
 
-        self.expect_char('>', "angle bracket \">\"")?;
+        self.pop_position_from_stack(); // discard the group name start position
 
-        Ok(name_string)
+        Ok(name_buffer)
+    }
+
+    fn lex_number_decimal(&mut self) -> Result<usize, AnreError> {
+        // ```diagram
+        // 123456T  //
+        // ^     ^__// to here
+        // |________// current char, validated
+        //
+        // T = not a number || EOF
+        // ```
+
+        let mut num_buffer = String::new();
+
+        self.push_peek_position_into_stack();
+
+        while let Some(current_char) = self.peek_char(0) {
+            match current_char {
+                '0'..='9' => {
+                    num_buffer.push(*current_char);
+                    self.next_char(); // consume digit
+                }
+                _ => {
+                    break;
+                }
+            }
+        }
+
+        if num_buffer.is_empty() {
+            return Err(AnreError::MessageWithPosition(
+                "Expect a number.".to_owned(),
+                self.pop_position_from_stack(),
+            ));
+        }
+
+        let num_range = Range::new(&self.pop_position_from_stack(), &self.last_position);
+
+        let num_token = num_buffer.parse::<usize>().map_err(|_| {
+            AnreError::MessageWithRange(
+                format!("Can not convert \"{}\" to integer number.", num_buffer),
+                num_range,
+            )
+        })?;
+
+        Ok(num_token)
     }
 
     fn lex_repetition(&mut self) -> Result<TokenWithRange, AnreError> {
-        // {...}?  //
+        // ```diagram
+        // {m,n}?  //
         // ^    ^__// to here
         // |_______// from here, validated
+        // ```
 
-        self.push_peek_position();
+        self.push_peek_position_into_stack();
 
         self.next_char(); // consume '{'
 
-        let from = self.lex_number()?;
+        let from = self.lex_number_decimal()?;
 
         let repetition = if self.peek_char_and_equals(0, ',') {
             self.next_char(); // consume ','
+
             if self.peek_char_and_equals(0, '}') {
                 self.next_char(); // consume '}'
                 Repetition::RepeatFrom(from)
             } else {
-                let to = self.lex_number()?;
+                let to = self.lex_number_decimal()?;
                 // consume '}'
-                self.expect_char('}', "right brace \"}\"")?;
-                Repetition::Range(from, to)
+                self.consume_char_and_assert('}', "closing brace")?;
+                Repetition::RepeatRange(from, to)
             }
         } else {
             // consume '}'
-            self.expect_char('}', "right brace \"}\"")?;
-            Repetition::Specified(from)
+            self.consume_char_and_assert('}', "closing brace")?;
+            Repetition::Repeat(from)
         };
 
-        let lazy = if self.peek_char_and_equals(0, '?') {
+        let is_lazy = if self.peek_char_and_equals(0, '?') {
             self.next_char(); // consume '?'
             true
         } else {
             false
         };
 
-        let token = Token::Repetition(repetition, lazy);
-        let range = Location::from_position_pair_with_end_included(
-            &self.pop_saved_position(),
-            &self.last_position,
-        );
+        let token = Token::Repetition(repetition, is_lazy);
+        let range = Range::new(&self.pop_position_from_stack(), &self.last_position);
 
         Ok(TokenWithRange { token, range })
     }
@@ -1001,9 +1107,10 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use crate::{
-        location::Location,
+        error::AnreError,
+        position::Position,
+        range::Range,
         traditional::token::{Repetition, Token, TokenWithRange},
-        AnreError,
     };
 
     use super::lex_from_str;
@@ -1018,28 +1125,67 @@ mod tests {
 
     #[test]
     fn test_lex_char() {
-        assert_eq!(lex_from_str_without_location("").unwrap(), vec![]);
-
         assert_eq!(
             lex_from_str_without_location("a").unwrap(),
             vec![Token::Char('a')]
         );
 
         assert_eq!(
-            lex_from_str_without_location("a文😊").unwrap(),
-            vec![Token::Char('a'), Token::Char('文'), Token::Char('😊'),]
+            lex_from_str_without_location("(a)").unwrap(),
+            vec![Token::GroupStart, Token::Char('a'), Token::GroupEnd]
         );
 
-        // general escaped chars
         assert_eq!(
-            lex_from_str_without_location(r#"\t\r\n\\\u{6587}"#).unwrap(),
-            vec![
-                Token::Char('\t'),
-                Token::Char('\r'),
-                Token::Char('\n'),
-                Token::Char('\\'),
-                Token::Char('文'),
-            ]
+            lex_from_str_without_location("az").unwrap(),
+            vec![Token::Char('a'), Token::Char('z')]
+        );
+
+        // CJK
+        assert_eq!(
+            lex_from_str_without_location("文").unwrap(),
+            vec![Token::Char('文')]
+        );
+
+        // emoji
+        assert_eq!(
+            lex_from_str_without_location("😊").unwrap(),
+            vec![Token::Char('😊')]
+        );
+
+        // escape char `\\`
+        assert_eq!(
+            lex_from_str_without_location("\\\\").unwrap(),
+            vec![Token::Char('\\')]
+        );
+
+        // escape char `\t`
+        assert_eq!(
+            lex_from_str_without_location("\\t").unwrap(),
+            vec![Token::Char('\t')]
+        );
+
+        // escape char `\r`
+        assert_eq!(
+            lex_from_str_without_location("\\r").unwrap(),
+            vec![Token::Char('\r')]
+        );
+
+        // escape char `\n`
+        assert_eq!(
+            lex_from_str_without_location("\\n").unwrap(),
+            vec![Token::Char('\n')]
+        );
+
+        // escape char, unicode
+        assert_eq!(
+            lex_from_str_without_location("\\u{2d}").unwrap(),
+            vec![Token::Char('-')]
+        );
+
+        // escape char, unicode
+        assert_eq!(
+            lex_from_str_without_location("\\u{6587}").unwrap(),
+            vec![Token::Char('文')]
         );
 
         // escaped meta chars
@@ -1062,49 +1208,35 @@ mod tests {
             ]
         );
 
-        // location
+        // Testing the ranges
+
         assert_eq!(
             lex_from_str(r#"a文😊\t\u{6587}"#).unwrap(),
             vec![
-                TokenWithRange::from_position_and_length(
-                    Token::Char('a'),
-                    &Location::new_position(/*0,*/ 0, 0, 0),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('文'),
-                    &Location::new_position(/*0,*/ 1, 0, 1),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('😊'),
-                    &Location::new_position(/*0,*/ 2, 0, 2),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('\t'),
-                    &Location::new_position(/*0,*/ 3, 0, 3),
-                    2
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('文'),
-                    &Location::new_position(/*0,*/ 5, 0, 5),
-                    8
-                ),
+                TokenWithRange::new(Token::Char('a'), Range::from_detail(0, 0, 0, 1)),
+                TokenWithRange::new(Token::Char('文'), Range::from_detail(1, 0, 1, 1)),
+                TokenWithRange::new(Token::Char('😊'), Range::from_detail(2, 0, 2, 1)),
+                TokenWithRange::new(Token::Char('\t'), Range::from_detail(3, 0, 3, 2)),
+                TokenWithRange::new(Token::Char('文'), Range::from_detail(5, 0, 5, 8)),
             ]
         );
 
         // err: unsupported escape char \v
         assert!(matches!(
             lex_from_str_without_location(r#"\v"#),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithRange(
                 _,
-                Location {
-                    // unit: 0,
-                    index: 0,
-                    line: 0,
-                    column: 0,
-                    length: 2,
+                Range {
+                    start: Position {
+                        index: 0,
+                        line: 0,
+                        column: 0,
+                    },
+                    end_inclusive: Position {
+                        index: 1,
+                        line: 0,
+                        column: 1,
+                    },
                 }
             ))
         ));
@@ -1112,14 +1244,19 @@ mod tests {
         // err: unsupported hex escape "\x.."
         assert!(matches!(
             lex_from_str_without_location(r#"\x33"#),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithRange(
                 _,
-                Location {
-                    // unit: 0,
-                    index: 0,
-                    line: 0,
-                    column: 0,
-                    length: 2
+                Range {
+                    start: Position {
+                        index: 0,
+                        line: 0,
+                        column: 0,
+                    },
+                    end_inclusive: Position {
+                        index: 1,
+                        line: 0,
+                        column: 1,
+                    },
                 }
             ))
         ));
@@ -1129,31 +1266,41 @@ mod tests {
         //  01 2345     // index
         assert!(matches!(
             lex_from_str_without_location("'\\u{}'"),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithRange(
                 _,
-                Location {
-                    // unit: 0,
-                    index: 3,
-                    line: 0,
-                    column: 3,
-                    length: 2
+                Range {
+                    start: Position {
+                        index: 3,
+                        line: 0,
+                        column: 3,
+                    },
+                    end_inclusive: Position {
+                        index: 4,
+                        line: 0,
+                        column: 4,
+                    }
                 }
             ))
         ));
 
         // err: invalid unicode code point, digits too much
-        // "'\\u{1000111}'"
-        //  01 234567890    // index
+        // "'\\u{10001111}'"
+        //  01 234567890123    // index
         assert!(matches!(
-            lex_from_str_without_location("'\\u{1000111}'"),
-            Err(AnreError::MessageWithLocation(
+            lex_from_str_without_location("'\\u{10001111}'"),
+            Err(AnreError::MessageWithRange(
                 _,
-                Location {
-                    // unit: 0,
-                    index: 3,
-                    line: 0,
-                    column: 3,
-                    length: 8
+                Range {
+                    start: Position {
+                        index: 3,
+                        line: 0,
+                        column: 3,
+                    },
+                    end_inclusive: Position {
+                        index: 10,
+                        line: 0,
+                        column: 10,
+                    }
                 }
             ))
         ));
@@ -1163,14 +1310,19 @@ mod tests {
         //  01 2345678901
         assert!(matches!(
             lex_from_str_without_location("'\\u{123456}'"),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithRange(
                 _,
-                Location {
-                    // unit: 0,
-                    index: 3,
-                    line: 0,
-                    column: 3,
-                    length: 8
+                Range {
+                    start: Position {
+                        index: 3,
+                        line: 0,
+                        column: 3,
+                    },
+                    end_inclusive: Position {
+                        index: 10,
+                        line: 0,
+                        column: 10,
+                    }
                 }
             ))
         ));
@@ -1178,14 +1330,12 @@ mod tests {
         // err: invalid char in the unicode escape sequence
         assert!(matches!(
             lex_from_str_without_location("'\\u{12mn}''"),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithPosition(
                 _,
-                Location {
-                    // unit: 0,
+                Position {
                     index: 6,
                     line: 0,
                     column: 6,
-                    length: 0
                 }
             ))
         ));
@@ -1193,14 +1343,12 @@ mod tests {
         // err: missing the closed brace for unicode escape sequence
         assert!(matches!(
             lex_from_str_without_location("'\\u{1234'"),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithPosition(
                 _,
-                Location {
-                    // unit: 0,
+                Position {
                     index: 8,
                     line: 0,
                     column: 8,
-                    length: 0
                 }
             ))
         ));
@@ -1214,14 +1362,12 @@ mod tests {
         // err: missing left brace for unicode escape sequence
         assert!(matches!(
             lex_from_str_without_location("'\\u1234}'"),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithPosition(
                 _,
-                Location {
-                    // unit: 0,
-                    index: 3,
+                Position {
+                    index: 2,
                     line: 0,
-                    column: 3,
-                    length: 0
+                    column: 2,
                 }
             ))
         ));
@@ -1266,13 +1412,12 @@ mod tests {
 
         // general escaped char
         assert_eq!(
-            lex_from_str_without_location(r#"[\t\r\n\\\]\u{6587}]"#).unwrap(),
+            lex_from_str_without_location(r#"[\t\r\n\]\u{6587}]"#).unwrap(),
             vec![
                 Token::CharSetStart,
                 Token::Char('\t'),
                 Token::Char('\r'),
                 Token::Char('\n'),
-                Token::Char('\\'),
                 Token::Char(']'),
                 Token::Char('文'),
                 Token::CharSetEnd
@@ -1282,7 +1427,7 @@ mod tests {
         // escaped meta chars
         // note: only ']' is necessary.
         assert_eq!(
-            lex_from_str_without_location(r#"[\(\)\{\}\[\]\+\*\?\.\|\^\$]"#).unwrap(),
+            lex_from_str_without_location(r#"[\(\)\{\}\[\]\+\*\?\.\|\^\$\\]"#).unwrap(),
             vec![
                 Token::CharSetStart,
                 Token::Char('('),
@@ -1298,14 +1443,15 @@ mod tests {
                 Token::Char('|'),
                 Token::Char('^'),
                 Token::Char('$'),
+                Token::Char('\\'),
                 Token::CharSetEnd
             ]
         );
 
         // meta chars in charset
-        // note: only ']' is escaped
+        // note: only ']' and '\' are escaped
         assert_eq!(
-            lex_from_str_without_location(r#"[(){}[\]+*?.|^$]"#).unwrap(),
+            lex_from_str_without_location(r#"[(){}[\]+*?.|^$\\]"#).unwrap(),
             vec![
                 Token::CharSetStart,
                 Token::Char('('),
@@ -1321,6 +1467,7 @@ mod tests {
                 Token::Char('|'),
                 Token::Char('^'),
                 Token::Char('$'),
+                Token::Char('\\'),
                 Token::CharSetEnd
             ]
         );
@@ -1352,57 +1499,21 @@ mod tests {
             ]
         );
 
-        // location
+        // testing the ranges
 
         assert_eq!(
             lex_from_str(r#"[a文😊\t\u{5b57}0-9-]"#).unwrap(),
             //              012 3 456789012345678
             vec![
-                TokenWithRange::from_position_and_length(
-                    Token::CharSetStart,
-                    &Location::new_position(/*0,*/ 0, 0, 0),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('a'),
-                    &Location::new_position(/*0,*/ 1, 0, 1),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('文'),
-                    &Location::new_position(/*0,*/ 2, 0, 2),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('😊'),
-                    &Location::new_position(/*0,*/ 3, 0, 3),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('\t'),
-                    &Location::new_position(/*0,*/ 4, 0, 4),
-                    2
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('字'),
-                    &Location::new_position(/*0,*/ 6, 0, 6),
-                    8
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::CharRange('0', '9'),
-                    &Location::new_position(/*0,*/ 14, 0, 14),
-                    3
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('-'),
-                    &Location::new_position(/*0,*/ 17, 0, 17),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::CharSetEnd,
-                    &Location::new_position(/*0,*/ 18, 0, 18),
-                    1
-                ),
+                TokenWithRange::new(Token::CharSetStart, Range::from_detail(0, 0, 0, 1)),
+                TokenWithRange::new(Token::Char('a'), Range::from_detail(1, 0, 1, 1)),
+                TokenWithRange::new(Token::Char('文'), Range::from_detail(2, 0, 2, 1)),
+                TokenWithRange::new(Token::Char('😊'), Range::from_detail(3, 0, 3, 1)),
+                TokenWithRange::new(Token::Char('\t'), Range::from_detail(4, 0, 4, 2)),
+                TokenWithRange::new(Token::Char('字'), Range::from_detail(6, 0, 6, 8)),
+                TokenWithRange::new(Token::CharRange('0', '9'), Range::from_detail(14, 0, 14, 3)),
+                TokenWithRange::new(Token::Char('-'), Range::from_detail(17, 0, 17, 1)),
+                TokenWithRange::new(Token::CharSetEnd, Range::from_detail(18, 0, 18, 1)),
             ]
         );
 
@@ -1415,14 +1526,19 @@ mod tests {
         // err: negative preset charset
         assert!(matches!(
             lex_from_str_without_location(r#"[ab\Wcd]"#),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithRange(
                 _,
-                Location {
-                    // unit: 0,
-                    index: 3,
-                    line: 0,
-                    column: 3,
-                    length: 2
+                Range {
+                    start: Position {
+                        index: 3,
+                        line: 0,
+                        column: 3,
+                    },
+                    end_inclusive: Position {
+                        index: 4,
+                        line: 0,
+                        column: 4,
+                    },
                 }
             ))
         ));
@@ -1430,14 +1546,19 @@ mod tests {
         // err: does not suppoert boundary assertions
         assert!(matches!(
             lex_from_str_without_location(r#"[\b]"#),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithRange(
                 _,
-                Location {
-                    // unit: 0,
-                    index: 1,
-                    line: 0,
-                    column: 1,
-                    length: 2
+                Range {
+                    start: Position {
+                        index: 1,
+                        line: 0,
+                        column: 1,
+                    },
+                    end_inclusive: Position {
+                        index: 2,
+                        line: 0,
+                        column: 2,
+                    }
                 }
             ))
         ));
@@ -1445,14 +1566,19 @@ mod tests {
         // err: unsupported escape char
         assert!(matches!(
             lex_from_str_without_location(r#"[\v]"#),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithRange(
                 _,
-                Location {
-                    // unit: 0,
-                    index: 1,
-                    line: 0,
-                    column: 1,
-                    length: 2
+                Range {
+                    start: Position {
+                        index: 1,
+                        line: 0,
+                        column: 1,
+                    },
+                    end_inclusive: Position {
+                        index: 2,
+                        line: 0,
+                        column: 2,
+                    }
                 }
             ))
         ));
@@ -1460,14 +1586,19 @@ mod tests {
         // err: unsupported back reference - number
         assert!(matches!(
             lex_from_str_without_location(r#"[\1]"#),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithRange(
                 _,
-                Location {
-                    // unit: 0,
-                    index: 1,
-                    line: 0,
-                    column: 1,
-                    length: 2
+                Range {
+                    start: Position {
+                        index: 1,
+                        line: 0,
+                        column: 1,
+                    },
+                    end_inclusive: Position {
+                        index: 2,
+                        line: 0,
+                        column: 2,
+                    }
                 }
             ))
         ));
@@ -1475,14 +1606,19 @@ mod tests {
         // err: unsupported back reference - name
         assert!(matches!(
             lex_from_str_without_location(r#"[\k<name>]"#),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithRange(
                 _,
-                Location {
-                    // unit: 0,
-                    index: 1,
-                    line: 0,
-                    column: 1,
-                    length: 2
+                Range {
+                    start: Position {
+                        index: 1,
+                        line: 0,
+                        column: 1,
+                    },
+                    end_inclusive: Position {
+                        index: 2,
+                        line: 0,
+                        column: 2,
+                    }
                 }
             ))
         ));
@@ -1512,54 +1648,39 @@ mod tests {
         assert_eq!(
             lex_from_str(r#"a+b+?"#).unwrap(),
             vec![
-                TokenWithRange::from_position_and_length(
-                    Token::Char('a'),
-                    &Location::new_position(/*0,*/ 0, 0, 0),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::OneOrMore,
-                    &Location::new_position(/*0,*/ 1, 0, 1),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('b'),
-                    &Location::new_position(/*0,*/ 2, 0, 2),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::OneOrMoreLazy,
-                    &Location::new_position(/*0,*/ 3, 0, 3),
-                    2
-                ),
+                TokenWithRange::new(Token::Char('a'), Range::from_detail(0, 0, 0, 1)),
+                TokenWithRange::new(Token::OneOrMore, Range::from_detail(1, 0, 1, 1)),
+                TokenWithRange::new(Token::Char('b'), Range::from_detail(2, 0, 2, 1)),
+                TokenWithRange::new(Token::OneOrMoreLazy, Range::from_detail(3, 0, 3, 2)),
             ]
         );
     }
 
     #[test]
-    fn test_lex_anchor_and_boundary_assertions() {
+    fn test_lex_line_assertions() {
         assert_eq!(
-            lex_from_str(r#"^\b\B$"#).unwrap(),
+            lex_from_str(r#"^a$"#).unwrap(),
             vec![
-                TokenWithRange::from_position_and_length(
-                    Token::StartAssertion,
-                    &Location::new_position(/*0,*/ 0, 0, 0),
-                    1
+                TokenWithRange::new(Token::LineAssertionStart, Range::from_detail(0, 0, 0, 1),),
+                TokenWithRange::new(Token::Char('a'), Range::from_detail(1, 0, 1, 1),),
+                TokenWithRange::new(Token::LineAssertionEnd, Range::from_detail(2, 0, 2, 1),),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lex_boundary_assertions() {
+        assert_eq!(
+            lex_from_str(r#"\ba\B"#).unwrap(),
+            vec![
+                TokenWithRange::new(
+                    Token::BoundaryAssertion(false),
+                    Range::from_detail(0, 0, 0, 2)
                 ),
-                TokenWithRange::from_position_and_length(
-                    Token::BoundaryAssertion('b'),
-                    &Location::new_position(/*0,*/ 1, 0, 1),
-                    2
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::BoundaryAssertion('B'),
-                    &Location::new_position(/*0,*/ 3, 0, 3),
-                    2
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::EndAssertion,
-                    &Location::new_position(/*0,*/ 5, 0, 5),
-                    1
+                TokenWithRange::new(Token::Char('a'), Range::from_detail(2, 0, 2, 1)),
+                TokenWithRange::new(
+                    Token::BoundaryAssertion(true),
+                    Range::from_detail(3, 0, 3, 2)
                 ),
             ]
         );
@@ -1570,20 +1691,17 @@ mod tests {
         assert_eq!(
             lex_from_str(r#"{3}{5,}{7,13}"#).unwrap(),
             vec![
-                TokenWithRange::from_position_and_length(
-                    Token::Repetition(Repetition::Specified(3), false),
-                    &Location::new_position(/*0,*/ 0, 0, 0),
-                    3
+                TokenWithRange::new(
+                    Token::Repetition(Repetition::Repeat(3), false),
+                    Range::from_detail(0, 0, 0, 3)
                 ),
-                TokenWithRange::from_position_and_length(
+                TokenWithRange::new(
                     Token::Repetition(Repetition::RepeatFrom(5), false),
-                    &Location::new_position(/*0,*/ 3, 0, 3),
-                    4
+                    Range::from_detail(3, 0, 3, 4)
                 ),
-                TokenWithRange::from_position_and_length(
-                    Token::Repetition(Repetition::Range(7, 13), false),
-                    &Location::new_position(/*0,*/ 7, 0, 7),
-                    6
+                TokenWithRange::new(
+                    Token::Repetition(Repetition::RepeatRange(7, 13), false),
+                    Range::from_detail(7, 0, 7, 6)
                 ),
             ]
         );
@@ -1591,20 +1709,17 @@ mod tests {
         assert_eq!(
             lex_from_str(r#"{3}?{5,}?{7,13}?"#).unwrap(),
             vec![
-                TokenWithRange::from_position_and_length(
-                    Token::Repetition(Repetition::Specified(3), true),
-                    &Location::new_position(/*0,*/ 0, 0, 0),
-                    4
+                TokenWithRange::new(
+                    Token::Repetition(Repetition::Repeat(3), true),
+                    Range::from_detail(0, 0, 0, 4)
                 ),
-                TokenWithRange::from_position_and_length(
+                TokenWithRange::new(
                     Token::Repetition(Repetition::RepeatFrom(5), true),
-                    &Location::new_position(/*0,*/ 4, 0, 4),
-                    5
+                    Range::from_detail(4, 0, 4, 5)
                 ),
-                TokenWithRange::from_position_and_length(
-                    Token::Repetition(Repetition::Range(7, 13), true),
-                    &Location::new_position(/*0,*/ 9, 0, 9),
-                    7
+                TokenWithRange::new(
+                    Token::Repetition(Repetition::RepeatRange(7, 13), true),
+                    Range::from_detail(9, 0, 9, 7)
                 ),
             ]
         );
@@ -1612,14 +1727,12 @@ mod tests {
         // err: missing number
         assert!(matches!(
             lex_from_str(r#"{}"#),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithPosition(
                 _,
-                Location {
-                    // unit: 0,
+                Position {
                     index: 1,
                     line: 0,
                     column: 1,
-                    length: 0
                 }
             ))
         ));
@@ -1627,44 +1740,31 @@ mod tests {
         // err: expect a number
         assert!(matches!(
             lex_from_str(r#"{a}"#),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithPosition(
                 _,
-                Location {
-                    // unit: 0,
+                Position {
                     index: 1,
                     line: 0,
                     column: 1,
-                    length: 0
                 }
             ))
         ));
 
-        // err: incorrect syntax
+        // err: incomplete
         assert!(matches!(
-            lex_from_str(r#"{a}"#),
-            Err(AnreError::MessageWithLocation(
-                _,
-                Location {
-                    // unit: 0,
-                    index: 1,
-                    line: 0,
-                    column: 1,
-                    length: 0
-                }
-            ))
+            lex_from_str(r#"{1"#),
+            Err(AnreError::UnexpectedEndOfDocument(_,))
         ));
 
         // err: expect a number
         assert!(matches!(
             lex_from_str(r#"{1,a}"#),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithPosition(
                 _,
-                Location {
-                    // unit: 0,
+                Position {
                     index: 3,
                     line: 0,
                     column: 3,
-                    length: 0
                 }
             ))
         ));
@@ -1681,118 +1781,110 @@ mod tests {
         assert_eq!(
             lex_from_str(r#"a|b"#).unwrap(),
             vec![
-                TokenWithRange::from_position_and_length(
-                    Token::Char('a'),
-                    &Location::new_position(/*0,*/ 0, 0, 0),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::LogicOr,
-                    &Location::new_position(/*0,*/ 1, 0, 1),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('b'),
-                    &Location::new_position(/*0,*/ 2, 0, 2),
-                    1
-                ),
+                TokenWithRange::new(Token::Char('a'), Range::from_detail(0, 0, 0, 1)),
+                TokenWithRange::new(Token::LogicOr, Range::from_detail(1, 0, 1, 1)),
+                TokenWithRange::new(Token::Char('b'), Range::from_detail(2, 0, 2, 1)),
             ]
         );
     }
 
     #[test]
-    fn test_group_and_backreference() {
+    fn test_group() {
         assert_eq!(
-            lex_from_str(r#"(a)(?:b)(?<c>d)\1\k<e>"#).unwrap(),
+            lex_from_str(r#"(a)(?:b)(?<c>d)"#).unwrap(),
             vec![
-                TokenWithRange::from_position_and_length(
-                    Token::GroupStart,
-                    &Location::new_position(/*0,*/ 0, 0, 0),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('a'),
-                    &Location::new_position(/*0,*/ 1, 0, 1),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::GroupEnd,
-                    &Location::new_position(/*0,*/ 2, 0, 2),
-                    1
-                ),
+                TokenWithRange::new(Token::GroupStart, Range::from_detail(0, 0, 0, 1)),
+                TokenWithRange::new(Token::Char('a'), Range::from_detail(1, 0, 1, 1)),
+                TokenWithRange::new(Token::GroupEnd, Range::from_detail(2, 0, 2, 1)),
                 // non-capturing group
-                TokenWithRange::from_position_and_length(
-                    Token::NonCapturing,
-                    &Location::new_position(/*0,*/ 3, 0, 3),
-                    3
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('b'),
-                    &Location::new_position(/*0,*/ 6, 0, 6),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::GroupEnd,
-                    &Location::new_position(/*0,*/ 7, 0, 7),
-                    1
-                ),
+                TokenWithRange::new(Token::NonCaptureGroupStart, Range::from_detail(3, 0, 3, 3)),
+                TokenWithRange::new(Token::Char('b'), Range::from_detail(6, 0, 6, 1)),
+                TokenWithRange::new(Token::GroupEnd, Range::from_detail(7, 0, 7, 1)),
                 // named group
-                TokenWithRange::from_position_and_length(
-                    Token::NamedCapture("c".to_owned()),
-                    &Location::new_position(/*0,*/ 8, 0, 8),
-                    5
+                TokenWithRange::new(
+                    Token::NamedCaptureGroupStart("c".to_owned()),
+                    Range::from_detail(8, 0, 8, 5)
                 ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('d'),
-                    &Location::new_position(/*0,*/ 13, 0, 13),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::GroupEnd,
-                    &Location::new_position(/*0,*/ 14, 0, 14),
-                    1
-                ),
-                // back reference - number
-                TokenWithRange::from_position_and_length(
-                    Token::BackReferenceNumber(1),
-                    &Location::new_position(/*0,*/ 15, 0, 15),
-                    2
-                ),
-                // back reference - name
-                TokenWithRange::from_position_and_length(
-                    Token::BackReferenceIdentifier("e".to_owned()),
-                    &Location::new_position(/*0,*/ 17, 0, 17),
-                    5
-                ),
+                TokenWithRange::new(Token::Char('d'), Range::from_detail(13, 0, 13, 1)),
+                TokenWithRange::new(Token::GroupEnd, Range::from_detail(14, 0, 14, 1)),
             ]
         );
 
-        // err: missing identifier for named group
+        // err: invalid group syntax
         assert!(matches!(
-            lex_from_str(r#"(?<>abc)"#),
-            Err(AnreError::MessageWithLocation(
+            lex_from_str(r#"(?abc)"#),
+            Err(AnreError::MessageWithRange(
                 _,
-                Location {
-                    // unit: 0,
-                    index: 3,
-                    line: 0,
-                    column: 3,
-                    length: 0
+                Range {
+                    start: Position {
+                        index: 0,
+                        line: 0,
+                        column: 0,
+                    },
+                    end_inclusive: Position {
+                        index: 2,
+                        line: 0,
+                        column: 2,
+                    }
                 }
             ))
         ));
 
+        // err: missing identifier for named group
+        assert!(matches!(
+            lex_from_str(r#"(?<>abc)"#),
+            Err(AnreError::MessageWithRange(
+                _,
+                Range {
+                    start: Position {
+                        index: 2,
+                        line: 0,
+                        column: 2,
+                    },
+                    end_inclusive: Position {
+                        index: 3,
+                        line: 0,
+                        column: 3,
+                    }
+                }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_back_reference() {
+        assert_eq!(
+            lex_from_str(r#"\1\k<e>"#).unwrap(),
+            vec![
+                // back reference - number
+                TokenWithRange::new(
+                    Token::BackReferenceNumber(1),
+                    Range::from_detail(0, 0, 0, 2)
+                ),
+                // back reference - name
+                TokenWithRange::new(
+                    Token::BackReferenceName("e".to_owned()),
+                    Range::from_detail(2, 0, 2, 5)
+                ),
+            ]
+        );
+
         // err: back reference to group 0
         assert!(matches!(
             lex_from_str(r#"(a)b\0"#),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithRange(
                 _,
-                Location {
-                    // unit: 0,
-                    index: 5,
-                    line: 0,
-                    column: 5,
-                    length: 0
+                Range {
+                    start: Position {
+                        index: 4,
+                        line: 0,
+                        column: 4,
+                    },
+                    end_inclusive: Position {
+                        index: 5,
+                        line: 0,
+                        column: 5,
+                    }
                 }
             ))
         ));
@@ -1800,44 +1892,45 @@ mod tests {
         // err: missing identifier for named back reference
         assert!(matches!(
             lex_from_str(r#"\k<>)"#),
-            Err(AnreError::MessageWithLocation(
+            Err(AnreError::MessageWithRange(
                 _,
-                Location {
-                    // unit: 0,
-                    index: 3,
-                    line: 0,
-                    column: 3,
-                    length: 0
+                Range {
+                    start: Position {
+                        index: 2,
+                        line: 0,
+                        column: 2,
+                    },
+                    end_inclusive: Position {
+                        index: 3,
+                        line: 0,
+                        column: 3,
+                    }
                 }
             ))
+        ));
+
+        // err: missing '>' for named back reference
+        assert!(matches!(
+            lex_from_str(r#"\k<abc"#),
+            Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
         // err: missing '<' for named back reference
         assert!(matches!(
-            lex_from_str(r#"\kabc)"#),
-            Err(AnreError::MessageWithLocation(
+            lex_from_str(r#"\kabc>"#),
+            Err(AnreError::MessageWithRange(
                 _,
-                Location {
-                    // unit: 0,
-                    index: 2,
-                    line: 0,
-                    column: 2,
-                    length: 0
-                }
-            ))
-        ));
-
-        // err: incomplete group structure
-        assert!(matches!(
-            lex_from_str(r#"(?abc)"#),
-            Err(AnreError::MessageWithLocation(
-                _,
-                Location {
-                    // unit: 0,
-                    index: 0,
-                    line: 0,
-                    column: 0,
-                    length: 2
+                Range {
+                    start: Position {
+                        index: 0,
+                        line: 0,
+                        column: 0,
+                    },
+                    end_inclusive: Position {
+                        index: 2,
+                        line: 0,
+                        column: 2,
+                    }
                 }
             ))
         ));
@@ -1849,69 +1942,30 @@ mod tests {
             lex_from_str(r#"(?=a)(?!b)(?<=c)(?<!d)"#).unwrap(),
             vec![
                 // look ahead
-                TokenWithRange::from_position_and_length(
-                    Token::LookAhead,
-                    &Location::new_position(/*0,*/ 0, 0, 0),
-                    3
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('a'),
-                    &Location::new_position(/*0,*/ 3, 0, 3),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::GroupEnd,
-                    &Location::new_position(/*0,*/ 4, 0, 4),
-                    1
-                ),
+                TokenWithRange::new(Token::LookAheadGroupStart, Range::from_detail(0, 0, 0, 3)),
+                TokenWithRange::new(Token::Char('a'), Range::from_detail(3, 0, 3, 1)),
+                TokenWithRange::new(Token::GroupEnd, Range::from_detail(4, 0, 4, 1)),
                 // look ahead - negative
-                TokenWithRange::from_position_and_length(
-                    Token::LookAheadNegative,
-                    &Location::new_position(/*0,*/ 5, 0, 5),
-                    3
+                TokenWithRange::new(
+                    Token::LookAheadNegativeGroupStart,
+                    Range::from_detail(5, 0, 5, 3)
                 ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('b'),
-                    &Location::new_position(/*0,*/ 8, 0, 8),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::GroupEnd,
-                    &Location::new_position(/*0,*/ 9, 0, 9),
-                    1
-                ),
+                TokenWithRange::new(Token::Char('b'), Range::from_detail(8, 0, 8, 1)),
+                TokenWithRange::new(Token::GroupEnd, Range::from_detail(9, 0, 9, 1)),
                 // look behind
-                TokenWithRange::from_position_and_length(
-                    Token::LookBehind,
-                    &Location::new_position(/*0,*/ 10, 0, 10),
-                    4
+                TokenWithRange::new(
+                    Token::LookBehindGroupStart,
+                    Range::from_detail(10, 0, 10, 4)
                 ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('c'),
-                    &Location::new_position(/*0,*/ 14, 0, 14),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::GroupEnd,
-                    &Location::new_position(/*0,*/ 15, 0, 15),
-                    1
-                ),
+                TokenWithRange::new(Token::Char('c'), Range::from_detail(14, 0, 14, 1)),
+                TokenWithRange::new(Token::GroupEnd, Range::from_detail(15, 0, 15, 1)),
                 // look behind - negative
-                TokenWithRange::from_position_and_length(
-                    Token::LookBehindNegative,
-                    &Location::new_position(/*0,*/ 16, 0, 16),
-                    4
+                TokenWithRange::new(
+                    Token::LookBehindNegativeGroupStart,
+                    Range::from_detail(16, 0, 16, 4)
                 ),
-                TokenWithRange::from_position_and_length(
-                    Token::Char('d'),
-                    &Location::new_position(/*0,*/ 20, 0, 20),
-                    1
-                ),
-                TokenWithRange::from_position_and_length(
-                    Token::GroupEnd,
-                    &Location::new_position(/*0,*/ 21, 0, 21),
-                    1
-                ),
+                TokenWithRange::new(Token::Char('d'), Range::from_detail(20, 0, 20, 1)),
+                TokenWithRange::new(Token::GroupEnd, Range::from_detail(21, 0, 21, 1)),
             ]
         );
     }

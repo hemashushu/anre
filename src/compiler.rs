@@ -1662,7 +1662,7 @@ define(letter, ['a'..'f', char_space])
         {
             assert!(matches!(
                 compile_from_anre(r#"['+', !['a'..'f']]"#),
-                Err(AnreError::MessageWithLocation(_, _))
+                Err(AnreError::MessageWithPosition(_, _))
             ));
         }
     }

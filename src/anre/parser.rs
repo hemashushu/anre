@@ -32,7 +32,7 @@ pub fn parse_from_str(s: &str) -> Result<Program, AnreError> {
 pub struct Parser<'a> {
     upstream: &'a mut PeekableIter<'a, TokenWithRange>,
 
-    /// The range of the last consumed token by `next_token` or `next_token_with_range`.
+    /// Range of the most recently consumed token.
     pub last_range: Range,
 }
 
@@ -82,9 +82,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // Peek the next token and check if it equals to the expected token,
-    // return false if not equals or no more token,
-    // error if lexing error occurs during peeking.
+    // Returns `true` when the token at `offset` matches `expected_token`.
     fn peek_token_and_equals(&self, offset: usize, expected_token: &Token) -> bool {
         matches!(
             self.peek_token(offset),
@@ -104,8 +102,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Consume the next token and check if it's an identifier with the expected name,
-    /// return the identifier if it matches, otherwise return an error.
+    /// Consumes the next token and requires it to be the exact identifier.
     fn consume_identifier_and_assert(&mut self, identifier: &str) -> Result<String, AnreError> {
         match self.next_token() {
             Some(Token::Identifier(id)) if id == identifier => Ok(id),
@@ -159,8 +156,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // Consume the next token and assert it equals to the expected token,
-    // error if not equal or no more token
+    // Consumes one token and requires it to match `expected_token`.
     fn consume_token_and_assert(
         &mut self,
         expected_token: &Token,
@@ -184,22 +180,22 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // Consume '(', error if the next token is not '(' or no more token
+    // Consumes `(`.
     fn consume_opening_parenthesis(&mut self) -> Result<(), AnreError> {
         self.consume_token_and_assert(&Token::ParenthesisOpen, "opening parenthesis")
     }
 
-    // Consume ')', error if the next token is not ')' or no more token
+    // Consumes `)`.
     fn consume_closing_parenthesis(&mut self) -> Result<(), AnreError> {
         self.consume_token_and_assert(&Token::ParenthesisClose, "closing parenthesis")
     }
 
-    // Consume ']', error if the next token is not ']' or no more token
+    // Consumes `]`.
     fn consume_closing_bracket(&mut self) -> Result<(), AnreError> {
         self.consume_token_and_assert(&Token::BracketClose, "closing bracket")
     }
 
-    // Consume '}', error if the next token is not '}' or no more token
+    // Consumes `}`.
     fn consume_closing_brace(&mut self) -> Result<(), AnreError> {
         self.consume_token_and_assert(&Token::BraceClose, "closing brace")
     }
@@ -227,16 +223,18 @@ impl Parser<'_> {
         // |__ current, None or Some(...)
         // ```
 
-        // the expression parsing order:
+        // Parsing proceeds from the lowest-precedence form to the highest.
+        // Each layer delegates to the next tighter layer and then folds its own
+        // operator on top.
         //
-        // > precedence low, processed later
+        // Lower precedence, parsed later:
         // 1. binary expressions (logic or)
         // 2. name capture
         // 3. index capture
         // 4. method call
         // 5. quantifier
         // 6. primary expressions (literal, group, identifier, function call)
-        // > precedence high, processed first
+        // Higher precedence, parsed first.
 
         self.parse_logic_or()
     }
@@ -289,9 +287,8 @@ impl Parser<'_> {
             let name = self.consume_identifier()?;
 
             if let Expression::IndexCapture(exp) = expression {
-                // If the expression is already an index capture,
-                // we can directly convert it to a name capture without nesting,
-                // since name capture implies index capture.
+                // Naming an index capture should not produce `Name(Index(expr))`.
+                // Name capture already implies index capture semantics.
                 Ok(Expression::NameCapture(name, exp))
             } else {
                 // Otherwise, we wrap the expression in a new name capture.
@@ -313,10 +310,8 @@ impl Parser<'_> {
             let expression = self.parse_method_call()?;
 
             if matches!(expression, Expression::NameCapture(_, _)) {
-                // If the expression is a name capture, we should not wrap it in an index capture,
-                // since name capture already implies index capture.
-                // e.g.
-                // `# (foo as bar)` should be parsed as `foo as bar`, not `# (foo as bar)`.
+                // Name capture already records both the span and the name, so an
+                // extra index-capture wrapper would be redundant.
                 Ok(expression)
             } else {
                 Ok(Expression::IndexCapture(Box::new(expression)))
@@ -450,8 +445,8 @@ impl Parser<'_> {
                             FunctionName::Repeat
                         }
                         Repetition::RepeatRange(m, n) => {
-                            // `FunctionName::Repeat` is used for the `{m, n}` quantifier
-                            // when m == n, which is a special case that can be optimized to a fixed repetition.
+                            // `{m..m}` is equivalent to a fixed repetition, so it reuses
+                            // the same AST form as `{m}`.
                             if m == n {
                                 if lazy {
                                     return Err(AnreError::MessageWithRange(
@@ -567,7 +562,8 @@ impl Parser<'_> {
                         if id != "char_any"
                             && PresetCharSetName::try_from(id.as_str()).is_err() =>
                     {
-                        // backreference by name
+                        // A bare identifier that is neither a function call nor a
+                        // literal name is treated as a named backreference.
                         let name = id.to_owned();
                         self.next_token(); // consume identifier
                         Expression::BackReference(BackReference::Name(name))
@@ -610,11 +606,8 @@ impl Parser<'_> {
 
         self.consume_closing_parenthesis()?; // consume ")"
 
-        // Eliminate redundant group if it contains only one expression.
-        // This also helps to escape from nested groups that are usually
-        // introduced by macros.
-        //
-        // e.g.
+        // Collapse single-element groups. This keeps macro expansion from
+        // introducing extra group nodes that do not affect semantics.
         //
         // - `(foo)` -> `foo`
         // - `((foo, bar))` -> `(foo, bar)`

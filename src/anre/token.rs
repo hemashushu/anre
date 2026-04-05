@@ -8,110 +8,82 @@ use crate::range::Range;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
-    // Represents keyword.
-    // - `define`
-    // - `as`
-    //
-    // e.g.
-    // - `define identifier ( ... )` represents a macro definition.
-    // - `#![char_word, '-']+ as foo` represents `index(name(![char_word, '-'], foo))`.
+    // Reserved words in ANRE. Currently `define` and `as`.
     Keyword(String),
 
-    // Represents an identifier, which includes alphanumeric characters and underscores.
-    // [a-zA-Z0-9_] and '\u{a0}' - '\u{d7ff}' and '\u{e000}' - '\u{10ffff}'
+    // User-defined or built-in names.
     //
-    // Identifiers include:
-    // - Named capturing groups (e.g., `(...) as identifier`).
-    // - Function names (e.g., `optional()`, `one_or_more()`).
-    // - Anchor assertion function names (e.g., `is_start()`, `is_end()`).
-    // - Boundary assertion function names (e.g., `is_bound()`, `is_not_bound()`).
-    // - Macro names (e.g., `define identifier (...)`).
-    // - Preset character set names (e.g., `char_word`).
+    // The lexer accepts ASCII word characters plus Unicode scalar values outside
+    // the surrogate range. Identifiers are used for function names, macro names,
+    // preset charset names, named captures, and backreferences.
     Identifier(String),
 
-    // Represents a numeric value.
+    // Decimal integer literal used by repetition counts and numeric arguments.
     Number(usize),
 
-    // Represents a single character.
+    // Character literal, for example `'a'`.
     Char(char),
 
-    // Represents a string literal.
+    // String literal, for example `"abc"`.
     String(String),
 
-    // Represents a question mark (`?`).
-    // e.g. `'a'?` matches 'a' zero or one time.
+    // Greedy zero-or-one quantifier postfix `?`.
     Question,
 
-    // Represents a lazy question mark (`??`).
-    // e.g. `'a'??` matches 'a' zero or one time, but prefers zero.
+    // Lazy zero-or-one quantifier postfix `??`.
     QuestionLazy,
 
-    // Represents a plus sign (`+`).
-    // e.g. `'a'+` matches 'a' one or more times.
+    // Greedy one-or-more quantifier postfix `+`.
     Plus,
 
-    // Represents a lazy plus sign (`+?`).
-    // e.g. `'a'+?` matches 'a' one or more times, but prefers fewer matches.
+    // Lazy one-or-more quantifier postfix `+?`.
     PlusLazy,
 
-    // Represents an asterisk (`*`).
-    // e.g. `'a'*` matches 'a' zero or more times.
+    // Greedy zero-or-more quantifier postfix `*`.
     Asterisk,
 
-    // Represents a lazy asterisk (`*?`).
-    // e.g. `'a'*?` matches 'a' zero or more times, but prefers fewer matches.
+    // Lazy zero-or-more quantifier postfix `*?`.
     AsteriskLazy,
 
-    // Represents a left curly brace (`{`).
-    // e.g.
-    // - `{3}` matches exactly three occurrences of the preceding element.
-    // - `{3..}` matches three or more occurrences of the preceding element.
-    // - `{3..5}` matches between three and five occurrences of the preceding element.
+    // Opens a repetition specifier such as `{3}`, `{3..}`, or `{3..5}`.
     BraceOpen,
 
-    // Represents a right curly brace (`}`).
+    // Closes a repetition specifier.
     BraceClose,
 
-    // Represents an exclamation mark (`!`).
-    // e.g. `![abc]` represents a negative character set that matches any character except 'a', 'b', or 'c'.
+    // Negates a character set when it appears immediately before `[`, as in `![...]`.
     Exclamation,
 
-    // Represents a range operator (`..`).
-    // e.g. `'a'..'z'` represents a character range that matches any character from 'a' to 'z' inclusive.
+    // Shared `..` operator used in char ranges and repetition ranges.
     Range,
 
-    // Represents a hash sign (`#`).
-    // e.g. `#![char_word, '-']+ as foo` represents `index(name(![char_word, '-'], foo))`.
+    // Prefix operator for index capture.
     Hash,
 
-    // Represents a dot (`.`).
+    // Method-call separator in expression chains such as `'a'.optional()`.
     Dot,
 
-    // Represents a logical OR operator (`||`).
-    // e.g. `'a' || 'b'` matches either 'a' or 'b'.
+    // Alternation operator `||`.
     LogicOr,
 
-    // Represents a left square bracket (`[`).
-    // e.g. `['a' 'b' 'c']` represents a character set that matches
-    // any character 'a', 'b', or 'c'.
+    // Opens a character set literal.
     BracketOpen,
 
-    // Represents a right square bracket (`]`).
+    // Closes a character set literal.
     BracketClose,
 
-    // Represents a left parenthesis (`(`).
-    // e.g.
-    // - `('a' 'b')` represents a group that matches 'a' followed by 'b'.
-    // - `name()` represents a function call to a function named `name`.
+    // Opens a group or function-call argument list.
     ParenthesisOpen,
 
-    // Represents a right parenthesis (`)`).
+    // Closes a group or function-call argument list.
     ParenthesisClose,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct TokenWithRange {
+    // The token produced by the lexer.
     pub token: Token,
+    // Source range covering the original lexeme.
     pub range: Range,
 }
 
