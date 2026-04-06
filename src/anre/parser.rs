@@ -444,6 +444,15 @@ impl Parser<'_> {
                             args.push(FunctionArgument::Number(n));
                             FunctionName::Repeat
                         }
+                        Repetition::RepeatFrom(n) => {
+                            args.push(FunctionArgument::Number(n));
+
+                            if lazy {
+                                FunctionName::RepeatFromLazy
+                            } else {
+                                FunctionName::RepeatFrom
+                            }
+                        }
                         Repetition::RepeatRange(m, n) => {
                             // `{m..m}` is equivalent to a fixed repetition, so it reuses
                             // the same AST form as `{m}`.
@@ -469,15 +478,6 @@ impl Parser<'_> {
                                 } else {
                                     FunctionName::RepeatRange
                                 }
-                            }
-                        }
-                        Repetition::RepeatFrom(n) => {
-                            args.push(FunctionArgument::Number(n));
-
-                            if lazy {
-                                FunctionName::RepeatFromLazy
-                            } else {
-                                FunctionName::RepeatFrom
                             }
                         }
                     };
@@ -542,7 +542,8 @@ impl Parser<'_> {
         // primary expressions:
         // - literal
         // - group
-        // - identifier (for backreference)
+        // - identifier (for named backreference)
+        // - indexed backreference
         // - function call
 
         let expression = match self.peek_token(0) {
@@ -567,6 +568,12 @@ impl Parser<'_> {
                         let name = id.to_owned();
                         self.next_token(); // consume identifier
                         Expression::BackReference(BackReference::Name(name))
+                    }
+                    Token::Caret if matches!(self.peek_token(1), Some(Token::Number(_))) => {
+                        // numeric backreference, e.g. `^1`, `^2`, etc.
+                        self.next_token(); // consume '^'
+                        let index = self.consume_number()?;
+                        Expression::BackReference(BackReference::Index(index))
                     }
                     _ => {
                         let literal = self.parse_literal()?;
@@ -664,67 +671,60 @@ impl Parser<'_> {
 
     fn parse_literal(&mut self) -> Result<Literal, AnreError> {
         // literals:
-        // - `char_any`
+        // - `char_any` (any character)
         // - char
         // - string
         // - charset
-        // - preset_charset
+        // - preset charset
 
-        match self.peek_token(0) {
-            Some(token) => {
-                let literal = match token {
-                    Token::BracketOpen => {
-                        // charset
-                        let elements = self.parse_charset_elements()?;
-                        Literal::CharSet(CharSet {
-                            negative: false,
-                            elements,
-                        })
-                    }
-                    Token::Exclamation if self.peek_token_and_equals(1, &Token::BracketOpen) => {
-                        // negative charset
-                        self.next_token();
-
-                        let elements = self.parse_charset_elements()?;
-                        Literal::CharSet(CharSet {
-                            negative: true,
-                            elements,
-                        })
-                    }
-                    Token::Char(char_ref) => {
-                        let c = *char_ref;
-                        self.next_token(); // consume char
-                        Literal::Char(c)
-                    }
-                    Token::String(string_ref) => {
-                        let string = string_ref.to_owned();
-                        self.next_token(); // consume string
-                        Literal::String(string)
-                    }
-                    Token::Identifier(id) if id == "char_any" => {
-                        self.next_token(); // consume "char_any"
-                        Literal::AnyChar
-                    }
-                    Token::Identifier(preset_charset_name_ref) => {
-                        let preset_charset_name =
-                            PresetCharSetName::try_from(preset_charset_name_ref.as_str()).unwrap();
-                        self.next_token(); // consume preset charset
-                        Literal::PresetCharSet(preset_charset_name)
-                    }
-                    _ => {
-                        return Err(AnreError::MessageWithRange(
-                            "Expect a literal.".to_owned(),
-                            self.last_range,
-                        ));
-                    }
-                };
-
-                Ok(literal)
+        let literal = match self.peek_token(0).unwrap() {
+            Token::BracketOpen => {
+                // charset
+                let elements = self.parse_charset_elements()?;
+                Literal::CharSet(CharSet {
+                    negative: false,
+                    elements,
+                })
             }
-            None => {
-                unreachable!()
+            Token::Exclamation if self.peek_token_and_equals(1, &Token::BracketOpen) => {
+                // negative charset
+                self.next_token();
+
+                let elements = self.parse_charset_elements()?;
+                Literal::CharSet(CharSet {
+                    negative: true,
+                    elements,
+                })
             }
-        }
+            Token::Char(char_ref) => {
+                let c = *char_ref;
+                self.next_token(); // consume char
+                Literal::Char(c)
+            }
+            Token::String(string_ref) => {
+                let string = string_ref.to_owned();
+                self.next_token(); // consume string
+                Literal::String(string)
+            }
+            Token::Identifier(id) if id == "char_any" => {
+                self.next_token(); // consume "char_any"
+                Literal::AnyChar
+            }
+            Token::Identifier(preset_charset_name_ref) => {
+                let preset_charset_name =
+                    PresetCharSetName::try_from(preset_charset_name_ref.as_str()).unwrap();
+                self.next_token(); // consume preset charset
+                Literal::PresetCharSet(preset_charset_name)
+            }
+            _ => {
+                return Err(AnreError::MessageWithRange(
+                    "Expect a literal.".to_owned(),
+                    self.last_range,
+                ));
+            }
+        };
+
+        Ok(literal)
     }
 
     fn parse_charset_elements(&mut self) -> Result<Vec<CharSetElement>, AnreError> {
@@ -806,6 +806,59 @@ enum Repetition {
     Repeat(usize),
     RepeatFrom(usize),
     RepeatRange(usize, usize),
+}
+
+impl TryFrom<&str> for PresetCharSetName {
+    type Error = ();
+
+    fn try_from(name: &str) -> Result<Self, Self::Error> {
+        match name {
+            "char_word" => Ok(Self::CharWord),
+            "char_not_word" => Ok(Self::CharNotWord),
+            "char_digit" => Ok(Self::CharDigit),
+            "char_not_digit" => Ok(Self::CharNotDigit),
+            "char_space" => Ok(Self::CharSpace),
+            "char_not_space" => Ok(Self::CharNotSpace),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<&str> for FunctionName {
+    type Error = ();
+
+    fn try_from(name: &str) -> Result<Self, Self::Error> {
+        match name {
+            // Greedy Quantifier
+            "optional" => Ok(Self::Optional),
+            "one_or_more" => Ok(Self::OneOrMore),
+            "zero_or_more" => Ok(Self::ZeroOrMore),
+            "repeat" => Ok(Self::Repeat),
+            "repeat_range" => Ok(Self::RepeatRange),
+            "repeat_from" => Ok(Self::RepeatFrom),
+
+            // Lazy Quantifier
+            "optional_lazy" => Ok(Self::OptionalLazy),
+            "one_or_more_lazy" => Ok(Self::OneOrMoreLazy),
+            "zero_or_more_lazy" => Ok(Self::ZeroOrMoreLazy),
+            "repeat_range_lazy" => Ok(Self::RepeatRangeLazy),
+            "repeat_from_lazy" => Ok(Self::RepeatFromLazy),
+
+            // Boundary Assertions
+            "is_start" => Ok(Self::IsStart),
+            "is_end" => Ok(Self::IsEnd),
+            "is_bound" => Ok(Self::IsBound),
+            "is_not_bound" => Ok(Self::IsNotBound),
+
+            // Lookahead and Lookbehind Assertions
+            "is_before" => Ok(Self::IsBefore),        // lookahead
+            "is_after" => Ok(Self::IsAfter),          // lookbehind
+            "is_not_before" => Ok(Self::IsNotBefore), // negative lookahead
+            "is_not_after" => Ok(Self::IsNotAfter),   // negative lookbehind
+
+            _ => Err(()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -924,12 +977,12 @@ mod tests {
         assert_eq!(
             parse_from_str(
                 r#"
-['_', ['a'..'f'], ['0'..'9']]
+['-', ['a'..'f'], ['0'..'9']]
     "#,
             )
             .unwrap()
             .to_string(),
-            r#"['_', ['a'..'f'], ['0'..'9']]"#
+            r#"['-', ['a'..'f'], ['0'..'9']]"#
         );
     }
 
@@ -1105,7 +1158,7 @@ is_after("bar", "foo")
     }
 
     #[test]
-    fn test_parse_index_capture() {
+    fn test_parse_index_capture_and_backreference() {
         assert_eq!(
             parse_from_str(
                 r#"
@@ -1127,10 +1180,21 @@ is_after("bar", "foo")
             .to_string(),
             r#"#('a', char_digit)"#
         );
+
+        assert_eq!(
+            parse_from_str(
+                r#"
+(#char_digit+ '.' ^1)
+    "#,
+            )
+            .unwrap()
+            .to_string(),
+            r#"(#one_or_more(char_digit), '.', ^1)"#
+        );
     }
 
     #[test]
-    fn test_parse_name_capture() {
+    fn test_parse_name_capture_and_backreference() {
         assert_eq!(
             parse_from_str(
                 r#"
@@ -1176,10 +1240,7 @@ is_after("bar", "foo")
             .to_string(),
             r#"'a' as x"#
         );
-    }
 
-    #[test]
-    fn test_parse_backreference() {
         assert_eq!(
             parse_from_str(
                 r#"
@@ -1274,6 +1335,18 @@ is_after("bar", "foo")
             .unwrap()
             .to_string(),
             r#"('a', char_word) || ('b', char_digit)"#
+        );
+
+        // string + logic or
+        assert_eq!(
+            parse_from_str(
+                r#"
+"ab" || "cd"
+"#,
+            )
+            .unwrap()
+            .to_string(),
+            r#""ab" || "cd""#
         );
 
         // expressions as operands
@@ -1514,7 +1587,7 @@ define part (num_25x || num_2xx || num_1xx || num_xx || num_x)
             "(\
 '<', \
 one_or_more(char_word) as tag_name, \
-zero_or_more((char_space, one_or_more(char_word), optional(('=', '\"', one_or_more(char_word), '\"')))), \
+zero_or_more((char_space, one_or_more(char_word), optional(('=', '\\\"', one_or_more(char_word), '\\\"')))), \
 '>', \
 one_or_more_lazy(char_any), \
 '<', '/', tag_name, '>'\

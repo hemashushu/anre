@@ -155,61 +155,12 @@ pub enum FunctionName {
     //   impossible for 'a' and 'b' to both precede 'c'.
     // - `('c'.is_before('a'), 'b')` always fails because it is
     //   impossible for 'a' and 'b' to both follow 'c'.
+    // - 'a'.is_before('b'.is_after('c'))` always fails because it is
+    //   impossible for 'a' to follow 'c' and for 'b' to follow 'a' at the same time.
+    // - 'c'.is_after('a'.is_before('b'))` always fails because it is
+    //   impossible for 'c' to precede 'a' and for 'b' to precede 'c' at the same time.
     IsBefore,    // `is_before(expression, expression)->expression` (lookahead)
     IsAfter,     // `is_after(expression, expression)->expression` (lookbehind)
     IsNotBefore, // `is_not_before(expression, expression)->expression` (negative lookahead)
     IsNotAfter,  // `is_not_after(expression, expression)->expression` (negative lookbehind)
-}
-
-impl TryFrom<&str> for PresetCharSetName {
-    type Error = ();
-
-    fn try_from(name: &str) -> Result<Self, Self::Error> {
-        match name {
-            "char_word" => Ok(Self::CharWord),
-            "char_not_word" => Ok(Self::CharNotWord),
-            "char_digit" => Ok(Self::CharDigit),
-            "char_not_digit" => Ok(Self::CharNotDigit),
-            "char_space" => Ok(Self::CharSpace),
-            "char_not_space" => Ok(Self::CharNotSpace),
-            _ => Err(()),
-        }
-    }
-}
-
-impl TryFrom<&str> for FunctionName {
-    type Error = ();
-
-    fn try_from(name: &str) -> Result<Self, Self::Error> {
-        match name {
-            // Greedy Quantifier
-            "optional" => Ok(Self::Optional),
-            "one_or_more" => Ok(Self::OneOrMore),
-            "zero_or_more" => Ok(Self::ZeroOrMore),
-            "repeat" => Ok(Self::Repeat),
-            "repeat_range" => Ok(Self::RepeatRange),
-            "repeat_from" => Ok(Self::RepeatFrom),
-
-            // Lazy Quantifier
-            "optional_lazy" => Ok(Self::OptionalLazy),
-            "one_or_more_lazy" => Ok(Self::OneOrMoreLazy),
-            "zero_or_more_lazy" => Ok(Self::ZeroOrMoreLazy),
-            "repeat_range_lazy" => Ok(Self::RepeatRangeLazy),
-            "repeat_from_lazy" => Ok(Self::RepeatFromLazy),
-
-            // Boundary Assertions
-            "is_start" => Ok(Self::IsStart),
-            "is_end" => Ok(Self::IsEnd),
-            "is_bound" => Ok(Self::IsBound),
-            "is_not_bound" => Ok(Self::IsNotBound),
-
-            // Lookahead and Lookbehind Assertions
-            "is_before" => Ok(Self::IsBefore),        // lookahead
-            "is_after" => Ok(Self::IsAfter),          // lookbehind
-            "is_not_before" => Ok(Self::IsNotBefore), // negative lookahead
-            "is_not_after" => Ok(Self::IsNotAfter),   // negative lookbehind
-
-            _ => Err(()),
-        }
-    }
 }

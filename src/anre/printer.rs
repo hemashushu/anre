@@ -83,12 +83,28 @@ impl Display for Literal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Literal::AnyChar => write!(f, "char_any"),
-            Literal::Char(c) => write!(f, "'{}'", c),
-            Literal::String(s) => write!(f, "\"{}\"", s),
+            Literal::Char(c) => write!(f, "'{}'", escape_char(*c)),
+            Literal::String(s) => write!(f, "\"{}\"", escape_string(s)),
             Literal::CharSet(c) => write!(f, "{}", c),
             Literal::PresetCharSet(p) => write!(f, "{}", p),
         }
     }
+}
+
+fn escape_char(c: char) -> String {
+    match c {
+        '\n' => "\\\n".to_owned(),
+        '\r' => "\\\r".to_owned(),
+        '\t' => "\\\t".to_owned(),
+        '\\' => "\\\'".to_owned(),
+        '\'' => "\\\'".to_owned(),
+        '\"' => "\\\"".to_owned(),
+        _ => c.to_string(),
+    }
+}
+
+fn escape_string(s: &str) -> String {
+    s.chars().map(escape_char).collect()
 }
 
 impl Display for FunctionArgument {
@@ -128,19 +144,33 @@ impl Display for Expression {
             Expression::FunctionCall(e) => write!(f, "{}", e),
             Expression::Or(left, right) => {
                 if matches!(left.as_ref(), Expression::Or(_, _)) {
-                    if matches!(right.as_ref(), Expression::Or(_, _)) {
-                        write!(f, "({}) || ({})", left, right)
-                    } else {
-                        write!(f, "({}) || {}", left, right)
-                    }
-                } else if matches!(right.as_ref(), Expression::Or(_, _)) {
-                    write!(f, "{} || ({})", left, right)
+                    write!(f, "({})", left)?;
                 } else {
-                    write!(f, "{} || {}", left, right)
+                    write!(f, "{}", left)?;
+                }
+
+                write!(f, " || ")?;
+
+                if matches!(right.as_ref(), Expression::Or(_, _)) {
+                    write!(f, "({})", right)
+                } else {
+                    write!(f, "{}", right)
                 }
             }
-            Expression::IndexCapture(expression) => write!(f, "#{}", expression),
-            Expression::NameCapture(name, expression) => write!(f, "{} as {}", expression, name),
+            Expression::IndexCapture(expression) => {
+                if matches!(expression.as_ref(), Expression::Or(_, _)) {
+                    write!(f, "#({})", expression)
+                } else {
+                    write!(f, "#{}", expression)
+                }
+            }
+            Expression::NameCapture(name, expression) => {
+                if matches!(expression.as_ref(), Expression::Or(_, _)) {
+                    write!(f, "{} as ({})", name, expression)
+                } else {
+                    write!(f, "{} as {}", expression, name)
+                }
+            }
         }
     }
 }

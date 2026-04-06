@@ -5,7 +5,7 @@
 // For more details, see the LICENSE, LICENSE.additional, and CONTRIBUTING files.
 
 mod lexer;
-// mod parser;
+mod parser;
 mod token;
 
 // pub use parser::parse_from_str;

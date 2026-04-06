@@ -11,7 +11,6 @@ mod error;
 mod error_printer;
 mod peekable_iter;
 mod position;
-mod printer;
 mod range;
 mod traditional;
 // mod compiler;

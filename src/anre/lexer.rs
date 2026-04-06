@@ -184,6 +184,14 @@ impl Lexer<'_> {
                         Range::from_single_position(&self.last_position),
                     ));
                 }
+                '^' => {
+                    self.next_char(); // consume '^'
+
+                    token_with_ranges.push(TokenWithRange::new(
+                        Token::Caret,
+                        Range::from_single_position(&self.last_position),
+                    ));
+                }
                 '[' => {
                     self.next_char(); // consume '['
 
@@ -381,7 +389,7 @@ impl Lexer<'_> {
                     self.next_char(); // consume char
                 }
                 ' ' | '\t' | '\r' | '\n' | ',' | '|' | '!' | '[' | ']' | '(' | ')' | '/' | '\''
-                | '"' | '.' | '#' | '?' | '+' | '*' | '{' | '}' => {
+                | '"' | '.' | '#' | '^' | '?' | '+' | '*' | '{' | '}' => {
                     // terminator chars
                     break;
                 }
@@ -428,7 +436,7 @@ impl Lexer<'_> {
                     self.next_char(); // consume '_'
                 }
                 ' ' | '\t' | '\r' | '\n' | ',' | '|' | '!' | '[' | ']' | '(' | ')' | '/' | '\''
-                | '"' | '.' | '#' | '?' | '+' | '*' | '{' | '}' => {
+                | '"' | '.' | '#' | '^' | '?' | '+' | '*' | '{' | '}' => {
                     // terminator chars
                     break;
                 }
@@ -961,12 +969,13 @@ mod tests {
     #[test]
     fn test_lex_punctuations() {
         assert_eq!(
-            lex_from_str_without_location("!...#||[]()???++?**?{}").unwrap(),
+            lex_from_str_without_location("!...#^||[]()???++?**?{}").unwrap(),
             vec![
                 Token::Exclamation,
                 Token::Range,
                 Token::Dot,
                 Token::Hash,
+                Token::Caret,
                 Token::LogicOr,
                 Token::BracketOpen,
                 Token::BracketClose,
