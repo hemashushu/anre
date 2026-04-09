@@ -93,10 +93,10 @@ impl Display for Literal {
 
 fn escape_char(c: char) -> String {
     match c {
-        '\n' => "\\\n".to_owned(),
-        '\r' => "\\\r".to_owned(),
-        '\t' => "\\\t".to_owned(),
-        '\\' => "\\\'".to_owned(),
+        '\n' => "\\n".to_owned(),
+        '\r' => "\\r".to_owned(),
+        '\t' => "\\t".to_owned(),
+        '\\' => "\\\\".to_owned(),
         '\'' => "\\\'".to_owned(),
         '\"' => "\\\"".to_owned(),
         _ => c.to_string(),

@@ -1276,7 +1276,7 @@ is_after("bar", "foo")
             assert_eq!(program.to_string(), r#"'a' || 'b'"#);
         }
 
-        // two operands
+        // multiple operands
         {
             let program = parse_from_str(
                 r#"

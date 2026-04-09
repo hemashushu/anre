@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Hemashushu <hippospark@gmail.com>, All rights reserved.
+// Copyright (c) 2026 Hemashushu <hippospark@gmail.com>, All rights reserved.
 //
 // This Source Code Form is subject to the terms of
 // the Mozilla Public License version 2.0 and additional exceptions.
@@ -6,42 +6,39 @@
 
 use std::fmt::Display;
 
-use crate::{
-    ast::{AnchorAssertionName, BoundaryAssertionName},
-    context::{Context, MatchRange},
-    object::Object,
-    process::start_routine,
-    utf8reader::{read_char, read_previous_char},
-};
-
-/// A `Transition` represents a state transition in a regex engine.
+/// A `Transition` represents a state transition in a regular expression engine.
 /// Each transition contains logic to match a specific pattern (e.g., a character or string).
-/// When executed, it processes the input text starting from a given position
+/// When executed, it processes the input character from a given position
 /// and returns the result: either a failure or a success with additional information
 /// (e.g., how many characters to move forward).
+///
+/// A transition is similar to the condition in an `if` statement in programming languages.
 #[derive(Debug)]
 pub enum Transition {
-    Jump(JumpTransition),
-    Char(CharTransition),
-    SpecialChar(SpecialCharTransition),
-    String(StringTransition),
-    CharSet(CharSetTransition),
-    BackReference(BackReferenceTransition),
-    AnchorAssertion(AnchorAssertionTransition),
-    BoundaryAssertion(BoundaryAssertionTransition),
+    // Basic transitions
+    Jump(JumpTransition),                                   // unconditional jump
+    Char(CharTransition),                                   // match a single specified character
+    AnyChar(AnyCharTransition),                             // match any single character
+    String(StringTransition),                               // match a specific string
+    CharSet(CharSetTransition),                             // match a set of characters or ranges
+    BackReference(BackReferenceTransition), // match a backreference to a capture group
+    LineBoundaryAssertion(LineBoundaryAssertionTransition), // match line start or end
+    WordBoundaryAssertion(WordBoundaryAssertionTransition), // match word boundary or non-word boundary
 
     // Capture group transitions
     CaptureStart(CaptureStartTransition),
     CaptureEnd(CaptureEndTransition),
 
-    // Counter-related transitions
+    // Counter transitions
     CounterReset(CounterResetTransition),
     CounterSave(CounterSaveTransition),
     CounterInc(CounterIncTransition),
-    CounterCheck(CounterCheckTransition),
-    Repetition(RepetitionTransition),
 
-    // Assertion transitions
+    // Repetition transitions
+    RepetitionForward(RepetitionForwardTransition),
+    RepetitionBack(RepetitionBackTransition),
+
+    // Look around assertion transitions
     LookAheadAssertion(LookAheadAssertionTransition),
     LookBehindAssertion(LookBehindAssertionTransition),
 }
@@ -57,9 +54,9 @@ pub struct CharTransition {
     pub byte_length: usize, // Length of the character in bytes
 }
 
-// Represents a transition for special characters (e.g., any character).
+// Represents a transition for the special character - any character.
 #[derive(Debug)]
-pub struct SpecialCharTransition;
+pub struct AnyCharTransition;
 
 /// Represents a transition that matches a specific string.
 #[derive(Debug)]
@@ -85,7 +82,7 @@ pub enum CharSetItem {
 /// Represents a range of characters (inclusive).
 #[derive(Debug)]
 pub struct CharRange {
-    pub start: u32,        // Start of the range
+    pub start: u32,         // Start of the range
     pub end_inclusive: u32, // End of the range (inclusive)
 }
 
@@ -97,14 +94,20 @@ pub struct BackReferenceTransition {
 
 /// Represents a transition that asserts an anchor (e.g., start or end of input).
 #[derive(Debug)]
-pub struct AnchorAssertionTransition {
-    pub name: AnchorAssertionName, // Name of the anchor assertion
+pub struct LineBoundaryAssertionTransition {
+    // Indicates the type of anchor assertion
+    // - false: start of line/input
+    // - true: end of line/input
+    pub is_end: bool,
 }
 
 /// Represents a transition that asserts a boundary (e.g., word boundary).
 #[derive(Debug)]
-pub struct BoundaryAssertionTransition {
-    pub name: BoundaryAssertionName, // Name of the boundary assertion
+pub struct WordBoundaryAssertionTransition {
+    // Indicates the type of boundary assertion
+    // - false: word boundary
+    // - true: non-word boundary
+    pub is_negative: bool,
 }
 
 /// Represents the start of a capture group.
@@ -131,15 +134,19 @@ pub struct CounterSaveTransition;
 #[derive(Debug)]
 pub struct CounterIncTransition;
 
-/// Represents a transition that checks the counter against a repetition condition.
+/// Represents a transition that checks the counter and moves forward if the condition is satisfied.
+///
+/// Jump forward if the counter value is satisfies the range of allowed repetitions.
 #[derive(Debug)]
-pub struct CounterCheckTransition {
+pub struct RepetitionForwardTransition {
     pub repetition_type: RepetitionType, // Type of repetition to check
 }
 
-/// Represents a transition for handling repetitions.
+/// Represents a transition that checks the counter and jumps back if the condition is satisfied.
+///
+/// Jump back if the counter value is less than the allowed number of repetitions.
 #[derive(Debug)]
-pub struct RepetitionTransition {
+pub struct RepetitionBackTransition {
     pub repetition_type: RepetitionType, // Type of repetition
 }
 
@@ -147,14 +154,14 @@ pub struct RepetitionTransition {
 #[derive(Debug)]
 pub struct LookAheadAssertionTransition {
     pub route_index: usize, // Index of the route to evaluate
-    pub negative: bool,     // Whether the assertion is negative
+    pub is_negative: bool,  // Whether the assertion is negative
 }
 
 /// Represents a lookbehind assertion transition.
 #[derive(Debug)]
 pub struct LookBehindAssertionTransition {
     pub route_index: usize,          // Index of the route to evaluate
-    pub negative: bool,              // Whether the assertion is negative
+    pub is_negative: bool,           // Whether the assertion is negative
     pub match_length_in_char: usize, // Length of the match in characters
 }
 
@@ -198,47 +205,47 @@ impl CharSetTransition {
         CharSetTransition { items, negative }
     }
 
-    pub fn new_preset_word() -> Self {
+    pub fn new_preset_charset_word() -> Self {
         let mut items: Vec<CharSetItem> = vec![];
         add_preset_word(&mut items);
         CharSetTransition::new(items, false)
     }
 
-    pub fn new_preset_not_word() -> Self {
+    pub fn new_preset_charset_not_word() -> Self {
         let mut items: Vec<CharSetItem> = vec![];
         add_preset_word(&mut items);
         CharSetTransition::new(items, true)
     }
 
-    pub fn new_preset_space() -> Self {
+    pub fn new_preset_charset_space() -> Self {
         let mut items: Vec<CharSetItem> = vec![];
         add_preset_space(&mut items);
         CharSetTransition::new(items, false)
     }
 
-    pub fn new_preset_not_space() -> Self {
+    pub fn new_preset_charset_not_space() -> Self {
         let mut items: Vec<CharSetItem> = vec![];
         add_preset_space(&mut items);
         CharSetTransition::new(items, true)
     }
 
-    pub fn new_preset_digit() -> Self {
+    pub fn new_preset_charset_digit() -> Self {
         let mut items: Vec<CharSetItem> = vec![];
         add_preset_digit(&mut items);
         CharSetTransition::new(items, false)
     }
 
-    pub fn new_preset_not_digit() -> Self {
+    pub fn new_preset_charset_not_digit() -> Self {
         let mut items: Vec<CharSetItem> = vec![];
         add_preset_digit(&mut items);
         CharSetTransition::new(items, true)
     }
 
-    pub fn new_preset_hex() -> Self {
-        let mut items: Vec<CharSetItem> = vec![];
-        add_preset_hex(&mut items);
-        CharSetTransition::new(items, false)
-    }
+    // pub fn new_preset_hex() -> Self {
+    //     let mut items: Vec<CharSetItem> = vec![];
+    //     add_preset_hex(&mut items);
+    //     CharSetTransition::new(items, false)
+    // }
 }
 
 pub fn add_char(items: &mut Vec<CharSetItem>, c: char) {
@@ -273,12 +280,12 @@ pub fn add_preset_digit(items: &mut Vec<CharSetItem>) {
     add_range(items, '0', '9');
 }
 
-pub fn add_preset_hex(items: &mut Vec<CharSetItem>) {
-    // [a-fA-F0-9]
-    add_range(items, 'A', 'F');
-    add_range(items, 'a', 'f');
-    add_range(items, '0', '9');
-}
+// pub fn add_preset_hex(items: &mut Vec<CharSetItem>) {
+//     // [a-fA-F0-9]
+//     add_range(items, 'A', 'F');
+//     add_range(items, 'a', 'f');
+//     add_range(items, '0', '9');
+// }
 
 impl BackReferenceTransition {
     pub fn new(capture_group_index: usize) -> Self {
@@ -288,15 +295,15 @@ impl BackReferenceTransition {
     }
 }
 
-impl AnchorAssertionTransition {
-    pub fn new(name: AnchorAssertionName) -> Self {
-        AnchorAssertionTransition { name }
+impl LineBoundaryAssertionTransition {
+    pub fn new(is_end: bool) -> Self {
+        LineBoundaryAssertionTransition { is_end }
     }
 }
 
-impl BoundaryAssertionTransition {
-    pub fn new(name: BoundaryAssertionName) -> Self {
-        BoundaryAssertionTransition { name }
+impl WordBoundaryAssertionTransition {
+    pub fn new(is_negative: bool) -> Self {
+        WordBoundaryAssertionTransition { is_negative }
     }
 }
 
@@ -318,36 +325,37 @@ impl CaptureEndTransition {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum RepetitionType {
-    Specified(usize),
-    Range(usize, usize),
+    Repeat(usize),
+    RepeatFrom(usize),
+    RepeatRange(usize, usize),
 }
 
-impl CounterCheckTransition {
+impl RepetitionForwardTransition {
     pub fn new(repetition_type: RepetitionType) -> Self {
-        CounterCheckTransition { repetition_type }
+        RepetitionForwardTransition { repetition_type }
     }
 }
 
-impl RepetitionTransition {
+impl RepetitionBackTransition {
     pub fn new(repetition_type: RepetitionType) -> Self {
-        RepetitionTransition { repetition_type }
+        RepetitionBackTransition { repetition_type }
     }
 }
 
 impl LookAheadAssertionTransition {
-    pub fn new(route_index: usize, negative: bool) -> Self {
+    pub fn new(route_index: usize, is_negative: bool) -> Self {
         LookAheadAssertionTransition {
             route_index,
-            negative,
+            is_negative,
         }
     }
 }
 
 impl LookBehindAssertionTransition {
-    pub fn new(route_index: usize, negative: bool, match_length_in_char: usize) -> Self {
+    pub fn new(route_index: usize, is_negative: bool, match_length_in_char: usize) -> Self {
         LookBehindAssertionTransition {
             route_index,
-            negative,
+            is_negative,
             match_length_in_char,
         }
     }
@@ -360,17 +368,17 @@ impl Display for Transition {
             Transition::Char(t) => write!(f, "{}", t),
             Transition::String(t) => write!(f, "{}", t),
             Transition::CharSet(t) => write!(f, "{}", t),
-            Transition::SpecialChar(t) => write!(f, "{}", t),
+            Transition::AnyChar(t) => write!(f, "{}", t),
             Transition::BackReference(t) => write!(f, "{}", t),
-            Transition::AnchorAssertion(t) => write!(f, "{}", t),
-            Transition::BoundaryAssertion(t) => write!(f, "{}", t),
+            Transition::LineBoundaryAssertion(t) => write!(f, "{}", t),
+            Transition::WordBoundaryAssertion(t) => write!(f, "{}", t),
             Transition::CaptureStart(t) => write!(f, "{}", t),
             Transition::CaptureEnd(t) => write!(f, "{}", t),
             Transition::CounterReset(t) => write!(f, "{}", t),
             Transition::CounterSave(t) => write!(f, "{}", t),
             Transition::CounterInc(t) => write!(f, "{}", t),
-            Transition::CounterCheck(t) => write!(f, "{}", t),
-            Transition::Repetition(t) => write!(f, "{}", t),
+            Transition::RepetitionForward(t) => write!(f, "{}", t),
+            Transition::RepetitionBack(t) => write!(f, "{}", t),
             Transition::LookAheadAssertion(t) => write!(f, "{}", t),
             Transition::LookBehindAssertion(t) => write!(f, "{}", t),
         }
@@ -383,14 +391,26 @@ impl Display for JumpTransition {
     }
 }
 
-impl Display for CharTransition {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let c = unsafe { char::from_u32_unchecked(self.codepoint) };
-        write!(f, "Char '{}'", c)
+fn escape_char(c: char) -> String {
+    match c {
+        '\n' => "\\n".to_owned(),
+        '\r' => "\\r".to_owned(),
+        '\t' => "\\t".to_owned(),
+        '\\' => "\\\\".to_owned(),
+        '\'' => "\\\'".to_owned(),
+        '\"' => "\\\"".to_owned(),
+        _ => c.to_string(),
     }
 }
 
-impl Display for SpecialCharTransition {
+impl Display for CharTransition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let c = unsafe { char::from_u32_unchecked(self.codepoint) };
+        write!(f, "Char '{}'", escape_char(c))
+    }
+}
+
+impl Display for AnyCharTransition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Any char")
     }
@@ -398,18 +418,13 @@ impl Display for SpecialCharTransition {
 
 impl Display for StringTransition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        /*
-         * convert Vec<char> into String:
-         * `let s:String = chars.iter().collect()`
-         * or
-         * `let s = String::from_iter(&chars)`
-         */
-        let cs: Vec<char> = self
+        let s = self
             .codepoints
             .iter()
             .map(|item| unsafe { char::from_u32_unchecked(*item) })
-            .collect();
-        let s = String::from_iter(&cs);
+            .map(escape_char)
+            .collect::<Vec<String>>()
+            .join("");
         write!(f, "String \"{}\"", s)
     }
 }
@@ -421,17 +436,12 @@ impl Display for CharSetTransition {
             let line = match item {
                 CharSetItem::Char(codepoint) => {
                     let c = unsafe { char::from_u32_unchecked(*codepoint) };
-                    match c {
-                        '\t' => "'\\t'".to_owned(),
-                        '\r' => "'\\r'".to_owned(),
-                        '\n' => "'\\n'".to_owned(),
-                        _ => format!("'{}'", c),
-                    }
+                    format!("'{}'", escape_char(c))
                 }
                 CharSetItem::Range(r) => {
                     let start = unsafe { char::from_u32_unchecked(r.start) };
                     let end_inclusive = unsafe { char::from_u32_unchecked(r.end_inclusive) };
-                    format!("'{}'..'{}'", start, end_inclusive)
+                    format!("'{}'..'{}'", escape_char(start), escape_char(end_inclusive))
                 }
             };
             lines.push(line);
@@ -452,15 +462,23 @@ impl Display for BackReferenceTransition {
     }
 }
 
-impl Display for AnchorAssertionTransition {
+impl Display for LineBoundaryAssertionTransition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Anchor assertion \"{}\"", self.name)
+        if self.is_end {
+            write!(f, "Line boundary assertion is_end()")
+        } else {
+            write!(f, "Line boundary assertion is_start()")
+        }
     }
 }
 
-impl Display for BoundaryAssertionTransition {
+impl Display for WordBoundaryAssertionTransition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Boundary assertion \"{}\"", self.name)
+        if self.is_negative {
+            write!(f, "Word boundary assertion is_not_bound()")
+        } else {
+            write!(f, "Word boundary assertion is_bound()")
+        }
     }
 }
 
@@ -494,36 +512,31 @@ impl Display for CounterIncTransition {
     }
 }
 
-impl Display for CounterCheckTransition {
+impl Display for RepetitionForwardTransition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Counter check {}", self.repetition_type)
+        write!(f, "Repetition forward {}", self.repetition_type)
     }
 }
 
-impl Display for RepetitionTransition {
+impl Display for RepetitionBackTransition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Repetition {}", self.repetition_type)
+        write!(f, "Repetition back {}", self.repetition_type)
     }
 }
 
 impl Display for RepetitionType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RepetitionType::Specified(n) => write!(f, "times {}", n),
-            RepetitionType::Range(m, n) => {
-                if n == &usize::MAX {
-                    write!(f, "from {} to MAX", m)
-                } else {
-                    write!(f, "from {} to {}", m, n)
-                }
-            }
+            RepetitionType::Repeat(n) => write!(f, "[{}]", n),
+            RepetitionType::RepeatFrom(m) => write!(f, "[{}..]", m),
+            RepetitionType::RepeatRange(m, n) => write!(f, "[{}..{}]", m, n),
         }
     }
 }
 
 impl Display for LookAheadAssertionTransition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.negative {
+        if self.is_negative {
             write!(f, "Look ahead negative ${}", self.route_index)
         } else {
             write!(f, "Look ahead ${}", self.route_index)
@@ -533,7 +546,7 @@ impl Display for LookAheadAssertionTransition {
 
 impl Display for LookBehindAssertionTransition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.negative {
+        if self.is_negative {
             write!(
                 f,
                 "Look behind negative ${}, match length {}",
@@ -547,352 +560,4 @@ impl Display for LookBehindAssertionTransition {
             )
         }
     }
-}
-
-impl Transition {
-
-    pub fn execute(
-        &self,
-        context: &mut Context,
-        object: &Object,
-
-        // the current position, it is like a cursor in the original text.
-        position: usize,
-
-        // the current repetition number.
-        //
-        // it is used by `Transition::CounterSave`,
-        // `Transition::CounterCheck` and `Transition::Repetition`.
-        //
-        // the following illustra a new complete repetition transition.
-        //
-        // ```diagram
-        //                             repetition trans
-        //                   /---------------------------------------\
-        //                   |                                       |
-        //                   |   | counter              | counter    |
-        //                   |   | save                 | restore &  |
-        //                   |   | trans                | inc        |
-        //   in              v   v       /-----------\  v trans      |
-        //  ==o==-------=====o==--------==o in  out o==-------==o|o==/     out
-        //        ^ counter  left        \-----------/     right |o==----==o==
-        //        | reset                                             ^
-        //        | trans                               counter check |
-        //                                                      trans |
-        // ```
-        repetition_count: usize,
-    ) -> ExecuteResult {
-        match self {
-            Transition::Jump(_) => {
-                // jumping transition always success,
-                // jumping transition has no character movement.
-                ExecuteResult::Success(0, 0)
-            }
-            Transition::Char(transition) => {
-                let thread = context.get_current_routine_ref();
-
-                if position >= thread.end_position {
-                    ExecuteResult::Failure
-                } else {
-                    let (cp, _) = read_char(context.bytes, position);
-                    if cp == transition.codepoint {
-                        ExecuteResult::Success(transition.byte_length, 0)
-                    } else {
-                        ExecuteResult::Failure
-                    }
-                }
-            }
-            Transition::SpecialChar(_) => {
-                // "special char" currently contains only the "char_any".
-                //
-                // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Character_classes
-                // \n, \r, \u2028 or \u2029
-
-                let thread = context.get_current_routine_ref();
-
-                if position >= thread.end_position {
-                    ExecuteResult::Failure
-                } else {
-                    let (current_char, byte_length) = get_char(context.bytes, position);
-
-                    // "char_any" does not include new-line characters.
-                    if current_char != '\n' as u32 && current_char != '\r' as u32 {
-                        ExecuteResult::Success(byte_length, 0)
-                    } else {
-                        ExecuteResult::Failure
-                    }
-                }
-            }
-            Transition::String(transition) => {
-                let thread = context.get_current_routine_ref();
-
-                if position + transition.byte_length > thread.end_position {
-                    ExecuteResult::Failure
-                } else {
-                    let mut is_same = true;
-                    let mut current_position: usize = position;
-
-                    for codepoint in &transition.codepoints {
-                        let (cp, length) = read_char(context.bytes, current_position);
-                        if *codepoint != cp {
-                            is_same = false;
-                            break;
-                        }
-                        current_position += length;
-                    }
-
-                    if is_same {
-                        ExecuteResult::Success(transition.byte_length, 0)
-                    } else {
-                        ExecuteResult::Failure
-                    }
-                }
-            }
-            Transition::CharSet(transition) => {
-                let thread = context.get_current_routine_ref();
-
-                if position >= thread.end_position {
-                    return ExecuteResult::Failure;
-                }
-
-                let (current_char, byte_length) = get_char(context.bytes, position);
-                let mut found: bool = false;
-
-                for item in &transition.items {
-                    found = match item {
-                        CharSetItem::Char(c) => current_char == *c,
-                        CharSetItem::Range(r) => {
-                            current_char >= r.start && current_char <= r.end_inclusive
-                        }
-                    };
-
-                    if found {
-                        break;
-                    }
-                }
-
-                if found ^ transition.negative {
-                    ExecuteResult::Success(byte_length, 0)
-                } else {
-                    ExecuteResult::Failure
-                }
-            }
-            Transition::BackReference(transition) => {
-                let MatchRange { start, end } =
-                    &context.match_ranges[transition.capture_group_index];
-
-                let bytes = &context.bytes[*start..*end];
-                let byte_length = end - start;
-
-                let thread = context.get_current_routine_ref();
-
-                if position + byte_length >= thread.end_position {
-                    ExecuteResult::Failure
-                } else {
-                    let mut is_same = true;
-
-                    for (idx, c) in bytes.iter().enumerate() {
-                        if c != &context.bytes[idx + position] {
-                            is_same = false;
-                            break;
-                        }
-                    }
-
-                    if is_same {
-                        ExecuteResult::Success(byte_length, 0)
-                    } else {
-                        ExecuteResult::Failure
-                    }
-                }
-            }
-            Transition::AnchorAssertion(transition) => {
-                let bytes = context.bytes;
-                let success = match transition.name {
-                    AnchorAssertionName::Start => is_first_char(position),
-                    AnchorAssertionName::End => is_end(bytes, position),
-                };
-
-                if success {
-                    ExecuteResult::Success(0, 0)
-                } else {
-                    ExecuteResult::Failure
-                }
-            }
-            Transition::BoundaryAssertion(transition) => {
-                let bytes = context.bytes;
-                let success = match transition.name {
-                    BoundaryAssertionName::IsBound => is_word_bound(bytes, position),
-                    BoundaryAssertionName::IsNotBound => !is_word_bound(bytes, position),
-                };
-
-                if success {
-                    ExecuteResult::Success(0, 0)
-                } else {
-                    ExecuteResult::Failure
-                }
-            }
-            Transition::CaptureStart(transition) => {
-                context.match_ranges[transition.capture_group_index].start = position;
-                ExecuteResult::Success(0, 0)
-            }
-            Transition::CaptureEnd(transition) => {
-                context.match_ranges[transition.capture_group_index].end = position;
-                ExecuteResult::Success(0, 0)
-            }
-            Transition::CounterReset(_) => ExecuteResult::Success(0, 0),
-            Transition::CounterSave(_) => {
-                context.counter_stack.push(repetition_count);
-                ExecuteResult::Success(0, 0)
-            }
-            Transition::CounterInc(_) => {
-                let last_count = context.counter_stack.pop().unwrap();
-                ExecuteResult::Success(0, last_count + 1)
-            }
-            Transition::CounterCheck(transition) => {
-                let can_forward = match transition.repetition_type {
-                    RepetitionType::Specified(m) => repetition_count == m,
-                    RepetitionType::Range(from, to) => {
-                        repetition_count >= from && repetition_count <= to
-                    }
-                };
-                if can_forward {
-                    ExecuteResult::Success(0, repetition_count)
-                } else {
-                    ExecuteResult::Failure
-                }
-            }
-            Transition::Repetition(transition) => {
-                let can_backward = match transition.repetition_type {
-                    RepetitionType::Specified(times) => repetition_count < times,
-                    RepetitionType::Range(_, to) => repetition_count < to,
-                };
-                if can_backward {
-                    ExecuteResult::Success(0, repetition_count)
-                } else {
-                    ExecuteResult::Failure
-                }
-            }
-            Transition::LookAheadAssertion(transition) => {
-                let route_index = transition.route_index;
-                let thread_result = start_routine(
-                    context,
-                    object,
-                    route_index,
-                    position,
-                    context.bytes.len(),
-                );
-
-                let result = thread_result ^ transition.negative;
-                if result {
-                    // assertion should not move the position of parent thread
-                    const NO_FORWARD: usize = 0;
-                    ExecuteResult::Success(NO_FORWARD, 0)
-                } else {
-                    ExecuteResult::Failure
-                }
-            }
-            Transition::LookBehindAssertion(transition) => {
-                let route_index = transition.route_index;
-                let thread_result = if let Ok(start) = get_position_by_chars_backward(
-                    context.bytes,
-                    position,
-                    transition.match_length_in_char,
-                ) {
-                    // the child thread should start at position "current_position - backword_count_in_bytes".
-                    start_routine(
-                        context,
-                        object,
-                        route_index,
-                        start,
-                        context.bytes.len(),
-                    )
-                } else {
-                    false
-                };
-
-                let result = thread_result ^ transition.negative;
-                if result {
-                    // assertion should not move the position of parent thread
-                    const NO_FORWARD: usize = 0;
-                    ExecuteResult::Success(NO_FORWARD, 0)
-                } else {
-                    ExecuteResult::Failure
-                }
-            }
-        }
-    }
-}
-
-// return Err if the position it less than 0
-#[inline]
-fn get_position_by_chars_backward(
-    bytes: &[u8],
-    mut current_position: usize,
-    backward_chars: usize,
-) -> Result<usize, ()> {
-    for _ in 0..backward_chars {
-        if current_position == 0 {
-            return Err(());
-        }
-
-        let (_, char_length_in_byte) = read_previous_char(bytes, current_position);
-        current_position -= char_length_in_byte;
-    }
-
-    Ok(current_position)
-}
-
-#[inline]
-fn get_char(bytes: &[u8], position: usize) -> (u32, usize) {
-    read_char(bytes, position)
-}
-
-#[inline]
-fn is_first_char(position: usize) -> bool {
-    position == 0
-}
-
-#[inline]
-fn is_end(bytes: &[u8], position: usize) -> bool {
-    let total_byte_length = bytes.len();
-    position >= total_byte_length
-}
-
-#[inline]
-fn is_word_bound(bytes: &[u8], position: usize) -> bool {
-    if bytes.is_empty() {
-        false
-    } else if position == 0 {
-        let (current_char, _) = get_char(bytes, position);
-        is_word_char(current_char)
-    } else if position >= bytes.len() {
-        let (previous_char, _) = get_char(bytes, position - 1);
-        is_word_char(previous_char)
-    } else {
-        let (current_char, _) = get_char(bytes, position);
-        let (previous_char, _) = get_char(bytes, position - 1);
-
-        if is_word_char(current_char) {
-            !is_word_char(previous_char)
-        } else {
-            is_word_char(previous_char)
-        }
-    }
-}
-
-#[inline]
-fn is_word_char(c: u32) -> bool {
-    (c >= 'a' as u32 && c <= 'z' as u32)
-        || (c >= 'A' as u32 && c <= 'Z' as u32)
-        || (c >= '0' as u32 && c <= '9' as u32)
-        || (c == '_' as u32)
-}
-
-/// Represents the result of executing a transition.
-pub enum ExecuteResult {
-    Success(
-        usize, // Number of bytes to move forward
-        usize, // Updated repetition count
-    ),
-    Failure, // Indicates that the transition failed
 }

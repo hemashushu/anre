@@ -4,8 +4,6 @@
 // the Mozilla Public License version 2.0 and additional exceptions.
 // For more details, see the LICENSE, LICENSE.additional, and CONTRIBUTING files.
 
-use std::{f32::consts::E, vec};
-
 use crate::{
     ast::{
         BackReference, CharRange, CharSet, CharSetElement, Expression, FunctionArgument,
@@ -450,21 +448,21 @@ impl Parser<'_> {
         // - (explicit) group
         // - back reference
         let expression = match self.peek_token(0).unwrap() {
-            Token::LineAssertionStart => {
+            Token::LineBoundaryAssertionStart => {
                 self.next_token(); // consume '^'
                 Expression::FunctionCall(Box::new(FunctionCall {
                     name: FunctionName::IsStart,
                     args: vec![],
                 }))
             }
-            Token::LineAssertionEnd => {
+            Token::LineBoundaryAssertionEnd => {
                 self.next_token(); // consume '$'
                 Expression::FunctionCall(Box::new(FunctionCall {
                     name: FunctionName::IsEnd,
                     args: vec![],
                 }))
             }
-            Token::BoundaryAssertion(b) => {
+            Token::WordBoundaryAssertion(b) => {
                 let negative = *b;
                 self.next_token(); // consume boundary assertion
 
@@ -851,7 +849,7 @@ mod tests {
             assert_eq!(program.to_string(), r#"'a' || 'b'"#);
         }
 
-        // two operands
+        // multiple operands
         {
             let program = parse_from_str(r#"a|b|c"#).unwrap();
 

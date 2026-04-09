@@ -13,13 +13,13 @@ mod peekable_iter;
 mod position;
 mod range;
 mod traditional;
-// mod compiler;
-// mod transition;
-// mod rulechecker;
+mod compiler;
+mod transition;
+mod match_length_calculator;
 
 pub mod utf8_codepoint_reader;
 // pub mod context;
-// pub mod object;
+pub mod object_file;
 // pub mod process;
 // pub mod regex;
 

@@ -6,7 +6,7 @@
 
 use crate::{
     context::{Context, Routine},
-    object::{Object, MAIN_ROUTE_INDEX},
+    object::{Map, MAIN_ROUTE_INDEX},
     transition::ExecuteResult,
     utf8reader::read_char,
 };
@@ -16,7 +16,7 @@ use crate::{
 /// A process represents a matching operation.
 pub fn start_process(
     context: &mut Context,
-    object: &Object,
+    object: &Map,
     start_position: usize,
 ) -> bool {
     let end = context.bytes.len();
@@ -32,7 +32,7 @@ pub fn start_process(
 /// and the text range for the routine.
 pub fn start_routine(
     context: &mut Context,
-    object: &Object,
+    object: &Map,
     route_index: usize,
     start_position: usize, // Start position of the text range (inclusive).
     end_position: usize,   // End position of the text range (exclusive).
@@ -56,7 +56,7 @@ pub fn start_routine(
         }
 
         // If the expression starts with "^...", there is no need to try remaining characters.
-        if object.routes[route_index].is_fixed_start_position {
+        if object.routes[route_index].is_fixed_matching_begin_point {
             break;
         }
 
@@ -71,12 +71,12 @@ pub fn start_routine(
 
 /// Execute transitions for a route starting from a specified position.
 /// Returns `true` if all transitions succeed, otherwise `false`.
-fn execute_transitions(context: &mut Context, object: &Object, position: usize) -> bool {
+fn execute_transitions(context: &mut Context, object: &Map, position: usize) -> bool {
     let (route_index, entry_node_index, exit_node_index) = {
         let thread = context.get_current_routine_ref();
         let route_index = thread.route_index;
         let route = &object.routes[route_index];
-        (route_index, route.start_node_index, route.end_node_index)
+        (route_index, route.entry_node_index, route.exit_node_index)
     };
 
     // Add transitions for the first node (entry node).
@@ -93,7 +93,7 @@ fn execute_transitions(context: &mut Context, object: &Object, position: usize) 
     while let Some(frame) = context.pop_transition_stack_item() {
         let route = &object.routes[route_index];
         let node = &route.nodes[frame.current_node_index];
-        let transition_item = &node.transition_items[frame.transition_index];
+        let transition_item = &node.path[frame.transition_index];
 
         let position = frame.position;
         let last_repetition_count = frame.repetition_count;
@@ -126,4 +126,326 @@ fn execute_transitions(context: &mut Context, object: &Object, position: usize) 
 
     // All transitions failed, meaning the route matching failed.
     false
+}
+
+
+impl Transition {
+    pub fn execute(
+        &self,
+        context: &mut Context,
+        object: &Object,
+
+        // the current position, it is like a cursor in the original text.
+        position: usize,
+
+        // the current repetition number.
+        //
+        // it is used by:
+        // - `Transition::CounterSave`,
+        // - `Transition::RepetitionForward`
+        // - `Transition::RepetitionBack`
+        repetition_count: usize,
+    ) -> ExecuteResult {
+        match self {
+            Transition::Jump(_) => {
+                // jumping transition always success,
+                // jumping transition has no character movement.
+                ExecuteResult::Success(0, 0)
+            }
+            Transition::Char(transition) => {
+                let thread = context.get_current_routine_ref();
+
+                if position >= thread.end_position {
+                    ExecuteResult::Failure
+                } else {
+                    let (cp, _) = read_char(context.bytes, position);
+                    if cp == transition.codepoint {
+                        ExecuteResult::Success(transition.byte_length, 0)
+                    } else {
+                        ExecuteResult::Failure
+                    }
+                }
+            }
+            Transition::AnyChar(_) => {
+                // "special char" currently contains only the "char_any".
+                //
+                // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Character_classes
+                // \n, \r, \u2028 or \u2029
+
+                let thread = context.get_current_routine_ref();
+
+                if position >= thread.end_position {
+                    ExecuteResult::Failure
+                } else {
+                    let (current_char, byte_length) = get_char(context.bytes, position);
+
+                    // "char_any" does not include new-line characters.
+                    if current_char != '\n' as u32 && current_char != '\r' as u32 {
+                        ExecuteResult::Success(byte_length, 0)
+                    } else {
+                        ExecuteResult::Failure
+                    }
+                }
+            }
+            Transition::String(transition) => {
+                let thread = context.get_current_routine_ref();
+
+                if position + transition.byte_length > thread.end_position {
+                    ExecuteResult::Failure
+                } else {
+                    let mut is_same = true;
+                    let mut current_position: usize = position;
+
+                    for codepoint in &transition.codepoints {
+                        let (cp, length) = read_char(context.bytes, current_position);
+                        if *codepoint != cp {
+                            is_same = false;
+                            break;
+                        }
+                        current_position += length;
+                    }
+
+                    if is_same {
+                        ExecuteResult::Success(transition.byte_length, 0)
+                    } else {
+                        ExecuteResult::Failure
+                    }
+                }
+            }
+            Transition::CharSet(transition) => {
+                let thread = context.get_current_routine_ref();
+
+                if position >= thread.end_position {
+                    return ExecuteResult::Failure;
+                }
+
+                let (current_char, byte_length) = get_char(context.bytes, position);
+                let mut found: bool = false;
+
+                for item in &transition.items {
+                    found = match item {
+                        CharSetItem::Char(c) => current_char == *c,
+                        CharSetItem::Range(r) => {
+                            current_char >= r.start && current_char <= r.end_inclusive
+                        }
+                    };
+
+                    if found {
+                        break;
+                    }
+                }
+
+                if found ^ transition.negative {
+                    ExecuteResult::Success(byte_length, 0)
+                } else {
+                    ExecuteResult::Failure
+                }
+            }
+            Transition::BackReference(transition) => {
+                let MatchRange { start, end } =
+                    &context.match_ranges[transition.capture_group_index];
+
+                let bytes = &context.bytes[*start..*end];
+                let byte_length = end - start;
+
+                let thread = context.get_current_routine_ref();
+
+                if position + byte_length >= thread.end_position {
+                    ExecuteResult::Failure
+                } else {
+                    let mut is_same = true;
+
+                    for (idx, c) in bytes.iter().enumerate() {
+                        if c != &context.bytes[idx + position] {
+                            is_same = false;
+                            break;
+                        }
+                    }
+
+                    if is_same {
+                        ExecuteResult::Success(byte_length, 0)
+                    } else {
+                        ExecuteResult::Failure
+                    }
+                }
+            }
+            Transition::LineBoundaryAssertion(transition) => {
+                let bytes = context.bytes;
+                let success = match transition.name {
+                    AnchorAssertionName::Start => is_first_char(position),
+                    AnchorAssertionName::End => is_end(bytes, position),
+                };
+
+                if success {
+                    ExecuteResult::Success(0, 0)
+                } else {
+                    ExecuteResult::Failure
+                }
+            }
+            Transition::WordBoundaryAssertion(transition) => {
+                let bytes = context.bytes;
+                let success = match transition.name {
+                    BoundaryAssertionName::IsBound => is_word_bound(bytes, position),
+                    BoundaryAssertionName::IsNotBound => !is_word_bound(bytes, position),
+                };
+
+                if success {
+                    ExecuteResult::Success(0, 0)
+                } else {
+                    ExecuteResult::Failure
+                }
+            }
+            Transition::CaptureStart(transition) => {
+                context.match_ranges[transition.capture_group_index].start = position;
+                ExecuteResult::Success(0, 0)
+            }
+            Transition::CaptureEnd(transition) => {
+                context.match_ranges[transition.capture_group_index].end = position;
+                ExecuteResult::Success(0, 0)
+            }
+            Transition::CounterReset(_) => ExecuteResult::Success(0, 0),
+            Transition::CounterSave(_) => {
+                context.counter_stack.push(repetition_count);
+                ExecuteResult::Success(0, 0)
+            }
+            Transition::CounterInc(_) => {
+                let last_count = context.counter_stack.pop().unwrap();
+                ExecuteResult::Success(0, last_count + 1)
+            }
+            Transition::RepetitionForward(transition) => {
+                let can_forward = match transition.repetition_type {
+                    RepetitionType::Specified(m) => repetition_count == m,
+                    RepetitionType::Range(from, to) => {
+                        repetition_count >= from && repetition_count <= to
+                    }
+                };
+                if can_forward {
+                    ExecuteResult::Success(0, repetition_count)
+                } else {
+                    ExecuteResult::Failure
+                }
+            }
+            Transition::RepetitionBack(transition) => {
+                let can_backward = match transition.repetition_type {
+                    RepetitionType::Specified(times) => repetition_count < times,
+                    RepetitionType::Range(_, to) => repetition_count < to,
+                };
+                if can_backward {
+                    ExecuteResult::Success(0, repetition_count)
+                } else {
+                    ExecuteResult::Failure
+                }
+            }
+            Transition::LookAheadAssertion(transition) => {
+                let route_index = transition.route_index;
+                let thread_result =
+                    start_routine(context, object, route_index, position, context.bytes.len());
+
+                let result = thread_result ^ transition.negative;
+                if result {
+                    // assertion should not move the position of parent thread
+                    const NO_FORWARD: usize = 0;
+                    ExecuteResult::Success(NO_FORWARD, 0)
+                } else {
+                    ExecuteResult::Failure
+                }
+            }
+            Transition::LookBehindAssertion(transition) => {
+                let route_index = transition.route_index;
+                let thread_result = if let Ok(start) = get_position_by_chars_backward(
+                    context.bytes,
+                    position,
+                    transition.match_length_in_char,
+                ) {
+                    // the child thread should start at position "current_position - backword_count_in_bytes".
+                    start_routine(context, object, route_index, start, context.bytes.len())
+                } else {
+                    false
+                };
+
+                let result = thread_result ^ transition.negative;
+                if result {
+                    // assertion should not move the position of parent thread
+                    const NO_FORWARD: usize = 0;
+                    ExecuteResult::Success(NO_FORWARD, 0)
+                } else {
+                    ExecuteResult::Failure
+                }
+            }
+        }
+    }
+}
+
+// return Err if the position it less than 0
+#[inline]
+fn get_position_by_chars_backward(
+    bytes: &[u8],
+    mut current_position: usize,
+    backward_chars: usize,
+) -> Result<usize, ()> {
+    for _ in 0..backward_chars {
+        if current_position == 0 {
+            return Err(());
+        }
+
+        let (_, char_length_in_byte) = read_previous_char(bytes, current_position);
+        current_position -= char_length_in_byte;
+    }
+
+    Ok(current_position)
+}
+
+#[inline]
+fn get_char(bytes: &[u8], position: usize) -> (u32, usize) {
+    read_char(bytes, position)
+}
+
+#[inline]
+fn is_first_char(position: usize) -> bool {
+    position == 0
+}
+
+#[inline]
+fn is_end(bytes: &[u8], position: usize) -> bool {
+    let total_byte_length = bytes.len();
+    position >= total_byte_length
+}
+
+#[inline]
+fn is_word_bound(bytes: &[u8], position: usize) -> bool {
+    if bytes.is_empty() {
+        false
+    } else if position == 0 {
+        let (current_char, _) = get_char(bytes, position);
+        is_word_char(current_char)
+    } else if position >= bytes.len() {
+        let (previous_char, _) = get_char(bytes, position - 1);
+        is_word_char(previous_char)
+    } else {
+        let (current_char, _) = get_char(bytes, position);
+        let (previous_char, _) = get_char(bytes, position - 1);
+
+        if is_word_char(current_char) {
+            !is_word_char(previous_char)
+        } else {
+            is_word_char(previous_char)
+        }
+    }
+}
+
+#[inline]
+fn is_word_char(c: u32) -> bool {
+    (c >= 'a' as u32 && c <= 'z' as u32)
+        || (c >= 'A' as u32 && c <= 'Z' as u32)
+        || (c >= '0' as u32 && c <= '9' as u32)
+        || (c == '_' as u32)
+}
+
+/// Represents the result of executing a transition.
+pub enum ExecuteResult {
+    Success(
+        usize, // Number of bytes to move forward
+        usize, // Updated repetition count
+    ),
+    Failure, // Indicates that the transition failed
 }

@@ -74,12 +74,12 @@
 // | `\s`        | Whitespace characters: `[ \t\r\n\v\f]`  |
 // | `\S`        | Negated \s: `[^\s]`                     |
 //
-// Boundary assertions:
+// Word boundary assertions:
 //
-// | Boundary assertion | Description         |
-// |--------------------|---------------------|
-// | `\b`               | Word boundary       |
-// | `\B`               | Not a word boundary |
+// | Assertion | Description         |
+// |-----------|---------------------|
+// | `\b`      | Word boundary       |
+// | `\B`      | Not a word boundary |
 //
 // Non-capturing groups:
 //
@@ -424,20 +424,20 @@ impl Lexer<'_> {
                     ));
                 }
                 '^' => {
-                    // line start assertion
+                    // line start boundary assertion
                     self.next_char(); // consume '^'
 
                     token_with_ranges.push(TokenWithRange::new(
-                        Token::LineAssertionStart,
+                        Token::LineBoundaryAssertionStart,
                         Range::from_single_position(&self.last_position),
                     ));
                 }
                 '$' => {
-                    // line end assertion
+                    // line end boundary assertion
                     self.next_char(); // consume '$'
 
                     token_with_ranges.push(TokenWithRange::new(
-                        Token::LineAssertionEnd,
+                        Token::LineBoundaryAssertionEnd,
                         Range::from_single_position(&self.last_position),
                     ));
                 }
@@ -666,11 +666,11 @@ impl Lexer<'_> {
                         self.next_char();
                         Token::PresetCharSet(c)
                     }
-                    // boundary assertions
+                    // word boundary assertions
                     'b' | 'B' => {
                         let c = *current_char;
                         self.next_char();
-                        Token::BoundaryAssertion(if c == 'B' { true } else { false })
+                        Token::WordBoundaryAssertion(if c == 'B' { true } else { false })
                     }
                     // back reference by index
                     '1'..='9' => {
@@ -805,7 +805,7 @@ impl Lexer<'_> {
                     }
                     'b' | 'B' => {
                         return Err(AnreError::MessageWithRange(
-                            "Boundary assertions are not supported in charset.".to_owned(),
+                            "Word boundary assertions are not supported in charset.".to_owned(),
                             Range::new(
                                 &self.pop_position_from_stack(),
                                 &self.peek_position(0).unwrap(),
@@ -1543,7 +1543,7 @@ mod tests {
             ))
         ));
 
-        // err: does not suppoert boundary assertions
+        // err: does not suppoert word boundary assertions within charset
         assert!(matches!(
             lex_from_str_without_location(r#"[\b]"#),
             Err(AnreError::MessageWithRange(
@@ -1657,29 +1657,29 @@ mod tests {
     }
 
     #[test]
-    fn test_lex_line_assertions() {
+    fn test_lex_line_boundary_assertions() {
         assert_eq!(
             lex_from_str(r#"^a$"#).unwrap(),
             vec![
-                TokenWithRange::new(Token::LineAssertionStart, Range::from_detail(0, 0, 0, 1),),
+                TokenWithRange::new(Token::LineBoundaryAssertionStart, Range::from_detail(0, 0, 0, 1),),
                 TokenWithRange::new(Token::Char('a'), Range::from_detail(1, 0, 1, 1),),
-                TokenWithRange::new(Token::LineAssertionEnd, Range::from_detail(2, 0, 2, 1),),
+                TokenWithRange::new(Token::LineBoundaryAssertionEnd, Range::from_detail(2, 0, 2, 1),),
             ]
         );
     }
 
     #[test]
-    fn test_lex_boundary_assertions() {
+    fn test_lex_word_boundary_assertions() {
         assert_eq!(
             lex_from_str(r#"\ba\B"#).unwrap(),
             vec![
                 TokenWithRange::new(
-                    Token::BoundaryAssertion(false),
+                    Token::WordBoundaryAssertion(false),
                     Range::from_detail(0, 0, 0, 2)
                 ),
                 TokenWithRange::new(Token::Char('a'), Range::from_detail(2, 0, 2, 1)),
                 TokenWithRange::new(
-                    Token::BoundaryAssertion(true),
+                    Token::WordBoundaryAssertion(true),
                     Range::from_detail(3, 0, 3, 2)
                 ),
             ]

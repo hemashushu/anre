@@ -8,4 +8,4 @@ mod lexer;
 mod parser;
 mod token;
 
-// pub use parser::parse_from_str;
+pub use parser::parse_from_str;

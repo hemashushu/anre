@@ -4,7 +4,7 @@
 // the Mozilla Public License version 2.0 and additional exceptions.
 // For more details, see the LICENSE, LICENSE.additional, and CONTRIBUTING files.
 
-use crate::object::Object;
+use crate::object::Map;
 
 /// Context for a running process.
 pub struct Context<'a> {
@@ -31,23 +31,6 @@ pub struct Context<'a> {
     // It is necessary to store the current repetition count
     // before entering a new transition.
     // This stack is used by `Transition::CounterSave` and `Transition::CounterInc`.
-    //
-    // The following diagram illustrates a complete repetition transition:
-    //
-    // ```diagram
-    //                             repetition transition
-    //                   /---------------------------------------\
-    //                   |                                       |
-    //                   |   | counter              | counter    |
-    //                   |   | save                 | restore &  |
-    //                   |   | transition           | increment  |
-    //   in              v   v       /-----------\  v transition |
-    //  ==o==-------=====o==--------==o in  out o==-------==o|o==/     out
-    //        ^ counter  left        \-----------/     right |o==----==o==
-    //        | reset                                             ^
-    //        | transition                          counter check |
-    //                                              transition    |
-    // ```
     pub counter_stack: Vec<usize>,
 }
 
@@ -150,7 +133,7 @@ impl<'a> Context<'a> {
 
     pub fn push_transitions_of_node(
         &mut self,
-        object: &Object,
+        object: &Map,
         node_index: usize,
         position: usize,
         repetition_count: usize,
@@ -159,7 +142,7 @@ impl<'a> Context<'a> {
             let routine = self.get_current_routine_ref();
             let route_index = routine.route_index;
             let node = &object.routes[route_index].nodes[node_index];
-            node.transition_items.len()
+            node.path.len()
         };
 
         // Add the indices of transitions in reverse order,

@@ -759,7 +759,6 @@ mod tests {
 
     #[test]
     fn test_process_logic_or() {
-        // two operands
         for re in generate_res(
             r#"'a' || 'b'"#, // ANRE
             r#"a|b"#,        // traditional
@@ -773,7 +772,7 @@ mod tests {
             assert_eq!(matches.next(), None);
         }
 
-        // three operands
+        // multiple operands
         for re in generate_res(
             r#""abc" || "mn" || "xyz""#, // ANRE
             r#"abc|mn|xyz"#,             // traditional

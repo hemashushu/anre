@@ -159,8 +159,21 @@ pub enum FunctionName {
     //   impossible for 'a' to follow 'c' and for 'b' to follow 'a' at the same time.
     // - 'c'.is_after('a'.is_before('b'))` always fails because it is
     //   impossible for 'c' to precede 'a' and for 'b' to precede 'c' at the same time.
-    IsBefore,    // `is_before(expression, expression)->expression` (lookahead)
-    IsAfter,     // `is_after(expression, expression)->expression` (lookbehind)
-    IsNotBefore, // `is_not_before(expression, expression)->expression` (negative lookahead)
-    IsNotAfter,  // `is_not_after(expression, expression)->expression` (negative lookbehind)
+
+
+    // `is_before(expression, next_expression)->expression`
+    // lookahead `A(?=B)`: `is_before(A, B)` or `A.is_before(B)`
+    IsBefore,
+
+    // `is_not_before(expression, next_expression)->expression`
+    // negative lookahead `A(?!B)`: `is_not_before(A, B)` or `A.is_not_before(B)`
+    IsNotBefore,
+
+    // `is_after(expression, previous_expression)->expression`
+    // lookbehind `(?<=B)A`: `is_after(A, B)` or `A.is_after(B)`
+    IsAfter,
+
+    // `is_not_after(expression, previous_expression)->expression`
+    // negative lookbehind `(?<!B)A`: `is_not_after(A, B)` or `A.is_not_after(B)`
+    IsNotAfter,
 }

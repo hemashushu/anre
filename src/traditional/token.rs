@@ -19,14 +19,14 @@ pub enum Token {
     Optional,           // ?
     OptionalLazy,       // ??
     LogicOr,            // `|`
-    LineAssertionStart, // ^
-    LineAssertionEnd,   // $
+    LineBoundaryAssertionStart, // ^
+    LineBoundaryAssertionEnd,   // $
     Dot,                // .
 
     Char(char),
     CharRange(/* start */ char, /* end_inclusive */ char), // e.g. a-zA-Z0-9
     PresetCharSet(char),                                   // e.g. \d, \w, \s
-    BoundaryAssertion(/* negative */ bool),                // e.g. \b, \B
+    WordBoundaryAssertion(/* negative */ bool),                // e.g. \b, \B
     Repetition(Repetition, /* is_lazy */ bool),            // e.g. {N}, {M,}, {M,N}
 
     GroupStart,                     // (
