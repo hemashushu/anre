@@ -204,7 +204,7 @@ impl Captures<'_, '_> {
         })
     }
 
-    // e.g.
+    // For example:
     //
     // ```
     //   let c = re.find("...").next().unwrap();

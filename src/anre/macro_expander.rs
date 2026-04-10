@@ -185,11 +185,11 @@ impl<'a> DefinitionExtractor<'a> {
         match self.next_token() {
             Some(Token::Identifier(id)) => Ok(id),
             Some(_) => Err(AnreError::MessageWithPosition(
-                "Expect an identifier.".to_owned(),
+                "Expected an identifier.".to_owned(),
                 self.last_range.start,
             )),
             None => Err(AnreError::UnexpectedEndOfDocument(
-                "Expect an identifier.".to_owned(),
+                "Expected an identifier.".to_owned(),
             )),
         }
     }

@@ -30,7 +30,7 @@
 // Meta characters `( ) { } [ ] + * ? . | ^ $ \` must be escaped when
 // they are used as literal,
 //
-// e.g.,
+// For example:
 //
 // - `\(`
 // - `\*`
@@ -40,7 +40,7 @@
 // the hyphen `-` must be escaped unless it is the first or the
 // last character in the set,
 //
-// e.g.,
+// For example:
 //
 // - `[a\-b]`
 // - `[ab-]`
@@ -93,8 +93,8 @@
 //
 // | Type       |  Description                                 |
 // |------------|----------------------------------------------|
-// | `\number`  | Backreference by group number, e.g., `\1`    |
-// | `\k<name>` | Backreference by group name, e.g., `\k<foo>` |
+// | `\number`  | Backreference by group number, for example, `\1`    |
+// | `\k<name>` | Backreference by group name, for example, `\k<foo>` |
 //
 // Lookaround assertions:
 //
@@ -198,13 +198,13 @@ impl<'a> Lexer<'a> {
                     Ok(())
                 } else {
                     Err(AnreError::MessageWithPosition(
-                        format!("Expect char {}.", char_description),
+                        format!("Expected character {}.", char_description),
                         self.last_position,
                     ))
                 }
             }
             None => Err(AnreError::UnexpectedEndOfDocument(format!(
-                "Expect char {}.",
+                "Expected character {}.",
                 char_description
             ))),
         }
@@ -259,7 +259,7 @@ impl Lexer<'_> {
                                 '<' => {
                                     match self.peek_char(1) {
                                         Some('=') => {
-                                            // look behind group
+                                            // look-behind group
                                             self.next_char(); // consume '<'
                                             self.next_char(); // consume '='
                                             token_with_ranges.push(TokenWithRange {
@@ -271,7 +271,7 @@ impl Lexer<'_> {
                                             });
                                         }
                                         Some('!') => {
-                                            // negative look behind group
+                                            // negative look-behind group
                                             self.next_char(); // consume '<'
                                             self.next_char(); // consume '='
                                             token_with_ranges.push(TokenWithRange {
@@ -296,7 +296,7 @@ impl Lexer<'_> {
                                     }
                                 }
                                 '=' => {
-                                    // look ahead group
+                                    // look-ahead group
                                     self.next_char(); // consule '='
                                     token_with_ranges.push(TokenWithRange {
                                         token: Token::LookAheadGroupStart,
@@ -307,7 +307,7 @@ impl Lexer<'_> {
                                     });
                                 }
                                 '!' => {
-                                    // negative look ahead group
+                                    // negative look-ahead group
                                     self.next_char(); // consule '!'
                                     token_with_ranges.push(TokenWithRange {
                                         token: Token::LookAheadNegativeGroupStart,
@@ -453,7 +453,7 @@ impl Lexer<'_> {
                     ));
                 }
                 '\\' => {
-                    // escape char, e.g. `\t`, `\n`, `\r`, `\u{hhhh}`, `\w`, `\d`, `\s`, etc.
+                    // Escape sequence, for example `\t`, `\n`, `\r`, `\u{hhhh}`, `\w`, `\d`, `\s`, etc.
                     let twr = self.lex_escape_sequence()?;
                     token_with_ranges.push(twr);
                 }
@@ -525,7 +525,7 @@ impl Lexer<'_> {
                 }
                 None => {
                     return Err(AnreError::UnexpectedEndOfDocument(
-                        "Incomplete charset.".to_owned(),
+                        "Incomplete character set.".to_owned(),
                     ));
                 }
             }
@@ -542,7 +542,7 @@ impl Lexer<'_> {
 
         // Scan and parse the char ranges in the charset, and merge them into `CharRange` tokens.
         //
-        // e.g.
+        // For example:
         //
         // ```diagram
         // [a-z]
@@ -550,7 +550,7 @@ impl Lexer<'_> {
         //  |____ // merge from here
         // ```
         //
-        // Note: the char range operator '-' must be escaped when it is not the first or the last char
+        // Note: the character range operator '-' must be escaped when it is not the first or last char
         // in the charset, so there won't be any ambiguity when scanning for char ranges.
 
         if token_with_ranges.len() > 4 {
@@ -571,7 +571,8 @@ impl Lexer<'_> {
                         *c
                     } else {
                         return Err(AnreError::MessageWithRange(
-                            "Expect a char for char range, e.g. \"A-Z\".".to_owned(),
+                            "Expected a character for a range, for example \"A-Z\"."
+                                .to_owned(),
                             *range_start,
                         ));
                     };
@@ -580,7 +581,8 @@ impl Lexer<'_> {
                         *c
                     } else {
                         return Err(AnreError::MessageWithRange(
-                            "Expect a char for char range, e.g. \"a-z\".".to_owned(),
+                            "Expected a character for a range, for example \"a-z\"."
+                                .to_owned(),
                             *range_end,
                         ));
                     };
@@ -633,7 +635,7 @@ impl Lexer<'_> {
                         Token::Char('\r')
                     }
                     'u' => {
-                        // unicode code point, e.g. '\u{2d}', '\u{6587}'
+                        // Unicode code point, for example '\u{2d}', '\u{6587}'
                         self.next_char(); // consume 'u'
 
                         if self.peek_char_and_equals(0, '{') {
@@ -641,7 +643,7 @@ impl Lexer<'_> {
                             Token::Char(c)
                         } else {
                             return Err(AnreError::MessageWithPosition(
-                                "Missing opening brace for unicode escape sequence.".to_owned(),
+                                "Missing opening brace for Unicode escape sequence.".to_owned(),
                                 self.last_position,
                             ));
                         }
@@ -711,7 +713,7 @@ impl Lexer<'_> {
             None => {
                 // `\` | EOF
                 return Err(AnreError::UnexpectedEndOfDocument(
-                    "Incomplete escape character sequence.".to_owned(),
+                    "Incomplete escape sequence.".to_owned(),
                 ));
             }
         };
@@ -752,7 +754,7 @@ impl Lexer<'_> {
                         Token::Char('\r')
                     }
                     'u' => {
-                        // unicode code point, e.g. '\u{2d}', '\u{6587}'
+                        // Unicode code point, for example '\u{2d}', '\u{6587}'
                         self.next_char(); // consume 'u'
 
                         if self.peek_char_and_equals(0, '{') {
@@ -760,7 +762,7 @@ impl Lexer<'_> {
                             Token::Char(c)
                         } else {
                             return Err(AnreError::MessageWithRange(
-                                "Missing opening brace for unicode escape sequence.".to_owned(),
+                                "Missing opening brace for Unicode escape sequence.".to_owned(),
                                 Range::new(&self.pop_position_from_stack(), &self.last_position),
                             ));
                         }
@@ -787,7 +789,7 @@ impl Lexer<'_> {
                     'W' | 'D' | 'S' => {
                         return Err(AnreError::MessageWithRange(
                             format!(
-                                "Negative char class '{}' is not supported in charset.",
+                                "Negative character class '{}' is not supported in a character set.",
                                 current_char
                             ),
                             Range::new(
@@ -798,7 +800,7 @@ impl Lexer<'_> {
                     }
                     'b' | 'B' => {
                         return Err(AnreError::MessageWithRange(
-                            "Word boundary assertions are not supported in charset.".to_owned(),
+                            "Word boundary assertions are not supported in a character set.".to_owned(),
                             Range::new(
                                 &self.pop_position_from_stack(),
                                 self.peek_position(0).unwrap(),
@@ -807,7 +809,7 @@ impl Lexer<'_> {
                     }
                     '0'..='9' | 'k' => {
                         return Err(AnreError::MessageWithRange(
-                            "Back references are not supported in charset.".to_owned(),
+                            "Backreferences are not supported in a character set.".to_owned(),
                             Range::new(
                                 &self.pop_position_from_stack(),
                                 self.peek_position(0).unwrap(),
@@ -828,7 +830,7 @@ impl Lexer<'_> {
             None => {
                 // `\` | EOF
                 return Err(AnreError::UnexpectedEndOfDocument(
-                    "Incomplete escape character sequence.".to_owned(),
+                    "Incomplete escape sequence.".to_owned(),
                 ));
             }
         };
@@ -862,7 +864,7 @@ impl Lexer<'_> {
                     _ => {
                         return Err(AnreError::MessageWithPosition(
                             format!(
-                                "Invalid character '{}' for unicode escape sequence.",
+                                "Invalid character '{}' in Unicode escape sequence.",
                                 current_char
                             ),
                             *self.peek_position(0).unwrap(),
@@ -884,7 +886,7 @@ impl Lexer<'_> {
 
         if codepoint_buffer.len() > 6 {
             return Err(AnreError::MessageWithRange(
-                "Unicode point code exceeds six digits.".to_owned(),
+                "Unicode code point exceeds six digits.".to_owned(),
                 Range::new(&self.position_stack.pop().unwrap(), &self.last_position),
             ));
         }
@@ -895,7 +897,7 @@ impl Lexer<'_> {
 
         if codepoint_buffer.is_empty() {
             return Err(AnreError::MessageWithRange(
-                "Empty unicode code point.".to_owned(),
+                "Unicode escape sequence has an empty code point.".to_owned(),
                 codepoint_range,
             ));
         }
@@ -911,7 +913,7 @@ impl Lexer<'_> {
             Ok(c)
         } else {
             Err(AnreError::MessageWithRange(
-                "Invalid unicode code point.".to_owned(),
+                "Invalid Unicode code point.".to_owned(),
                 codepoint_range,
             ))
         }
@@ -979,7 +981,7 @@ impl Lexer<'_> {
                     }
                     _ => {
                         return Err(AnreError::MessageWithPosition(
-                            format!("Invalid char '{}' for capture group name.", current_char),
+                            format!("Invalid character '{}' in capture group name.", current_char),
                             *self.peek_position(0).unwrap(),
                         ));
                     }
@@ -996,7 +998,7 @@ impl Lexer<'_> {
 
         if name_buffer.is_empty() {
             return Err(AnreError::MessageWithRange(
-                "Expect a capture group name.".to_owned(),
+                "Expected a capture group name.".to_owned(),
                 Range::new(&self.pop_position_from_stack(), &self.last_position),
             ));
         }
@@ -1033,7 +1035,7 @@ impl Lexer<'_> {
 
         if num_buffer.is_empty() {
             return Err(AnreError::MessageWithPosition(
-                "Expect a number.".to_owned(),
+                "Expected a number.".to_owned(),
                 self.pop_position_from_stack(),
             ));
         }
@@ -1042,7 +1044,7 @@ impl Lexer<'_> {
 
         let num_token = num_buffer.parse::<usize>().map_err(|_| {
             AnreError::MessageWithRange(
-                format!("Can not convert \"{}\" to integer number.", num_buffer),
+                format!("Cannot convert \"{}\" to an integer.", num_buffer),
                 num_range,
             )
         })?;
@@ -1169,13 +1171,13 @@ mod tests {
             vec![Token::Char('\n')]
         );
 
-        // escape char, unicode
+    // Unicode escape sequence.
         assert_eq!(
             lex_from_str_without_location("\\u{2d}").unwrap(),
             vec![Token::Char('-')]
         );
 
-        // escape char, unicode
+    // Unicode escape sequence.
         assert_eq!(
             lex_from_str_without_location("\\u{6587}").unwrap(),
             vec![Token::Char('文')]
@@ -1201,7 +1203,7 @@ mod tests {
             ]
         );
 
-        // Testing the ranges
+        // Test ranges.
 
         assert_eq!(
             lex_from_str(r#"a文😊\t\u{6587}"#).unwrap(),
@@ -1214,7 +1216,7 @@ mod tests {
             ]
         );
 
-        // err: unsupported escape char \v
+        // Error: unsupported escape char \v
         assert!(matches!(
             lex_from_str_without_location(r#"\v"#),
             Err(AnreError::MessageWithRange(
@@ -1234,7 +1236,7 @@ mod tests {
             ))
         ));
 
-        // err: unsupported hex escape "\x.."
+        // Error: unsupported hex escape "\x.."
         assert!(matches!(
             lex_from_str_without_location(r#"\x33"#),
             Err(AnreError::MessageWithRange(
@@ -1254,7 +1256,7 @@ mod tests {
             ))
         ));
 
-        // err: empty unicode escape string
+        // Error: empty unicode escape string
         // "'\\u{}'"
         //  01 2345     // index
         assert!(matches!(
@@ -1276,7 +1278,7 @@ mod tests {
             ))
         ));
 
-        // err: invalid unicode code point, digits too much
+        // Error: invalid unicode code point, digits too much
         // "'\\u{10001111}'"
         //  01 234567890123    // index
         assert!(matches!(
@@ -1298,7 +1300,7 @@ mod tests {
             ))
         ));
 
-        // err: invalid unicode code point, code point out of range
+        // Error: invalid unicode code point, code point out of range
         // "'\\u{123456}'"
         //  01 2345678901
         assert!(matches!(
@@ -1320,7 +1322,7 @@ mod tests {
             ))
         ));
 
-        // err: invalid char in the unicode escape sequence
+        // Error: invalid char in the unicode escape sequence
         assert!(matches!(
             lex_from_str_without_location("'\\u{12mn}''"),
             Err(AnreError::MessageWithPosition(
@@ -1333,7 +1335,7 @@ mod tests {
             ))
         ));
 
-        // err: missing the closed brace for unicode escape sequence
+        // Error: missing the closed brace for unicode escape sequence
         assert!(matches!(
             lex_from_str_without_location("'\\u{1234'"),
             Err(AnreError::MessageWithPosition(
@@ -1346,13 +1348,13 @@ mod tests {
             ))
         ));
 
-        // err: incomplete unicode escape sequence, encounter EOF
+        // Error: incomplete unicode escape sequence, encountered EOF
         assert!(matches!(
             lex_from_str_without_location("'\\u{1234"),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // err: missing left brace for unicode escape sequence
+        // Error: missing left brace for unicode escape sequence
         assert!(matches!(
             lex_from_str_without_location("'\\u1234}'"),
             Err(AnreError::MessageWithPosition(
@@ -1510,13 +1512,13 @@ mod tests {
             ]
         );
 
-        // err: missing ']'
+        // Error: missing ']'
         assert!(matches!(
             lex_from_str_without_location(r#"[abc"#),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // err: negative preset charset
+        // Error: negative preset charset
         assert!(matches!(
             lex_from_str_without_location(r#"[ab\Wcd]"#),
             Err(AnreError::MessageWithRange(
@@ -1536,7 +1538,7 @@ mod tests {
             ))
         ));
 
-        // err: does not suppoert word boundary assertions within charset
+        // Error: does not support word boundary assertions within charset
         assert!(matches!(
             lex_from_str_without_location(r#"[\b]"#),
             Err(AnreError::MessageWithRange(
@@ -1556,7 +1558,7 @@ mod tests {
             ))
         ));
 
-        // err: unsupported escape char
+        // Error: unsupported escape char
         assert!(matches!(
             lex_from_str_without_location(r#"[\v]"#),
             Err(AnreError::MessageWithRange(
@@ -1576,7 +1578,7 @@ mod tests {
             ))
         ));
 
-        // err: unsupported back reference - number
+        // Error: unsupported back reference - number
         assert!(matches!(
             lex_from_str_without_location(r#"[\1]"#),
             Err(AnreError::MessageWithRange(
@@ -1596,7 +1598,7 @@ mod tests {
             ))
         ));
 
-        // err: unsupported back reference - name
+        // Error: unsupported back reference - name
         assert!(matches!(
             lex_from_str_without_location(r#"[\k<name>]"#),
             Err(AnreError::MessageWithRange(
@@ -1717,7 +1719,7 @@ mod tests {
             ]
         );
 
-        // err: missing number
+        // Error: missing number
         assert!(matches!(
             lex_from_str(r#"{}"#),
             Err(AnreError::MessageWithPosition(
@@ -1730,7 +1732,7 @@ mod tests {
             ))
         ));
 
-        // err: expect a number
+        // Error: expect a number
         assert!(matches!(
             lex_from_str(r#"{a}"#),
             Err(AnreError::MessageWithPosition(
@@ -1743,13 +1745,13 @@ mod tests {
             ))
         ));
 
-        // err: incomplete
+        // Error: incomplete
         assert!(matches!(
             lex_from_str(r#"{1"#),
             Err(AnreError::UnexpectedEndOfDocument(_,))
         ));
 
-        // err: expect a number
+        // Error: expect a number
         assert!(matches!(
             lex_from_str(r#"{1,a}"#),
             Err(AnreError::MessageWithPosition(
@@ -1762,7 +1764,7 @@ mod tests {
             ))
         ));
 
-        // err: incomplete
+        // Error: incomplete
         assert!(matches!(
             lex_from_str(r#"{1,3"#),
             Err(AnreError::UnexpectedEndOfDocument(_))
@@ -1803,7 +1805,7 @@ mod tests {
             ]
         );
 
-        // err: invalid group syntax
+        // Error: invalid group syntax
         assert!(matches!(
             lex_from_str(r#"(?abc)"#),
             Err(AnreError::MessageWithRange(
@@ -1823,7 +1825,7 @@ mod tests {
             ))
         ));
 
-        // err: missing identifier for named group
+        // Error: missing identifier for named group
         assert!(matches!(
             lex_from_str(r#"(?<>abc)"#),
             Err(AnreError::MessageWithRange(
@@ -1862,7 +1864,7 @@ mod tests {
             ]
         );
 
-        // err: back reference to group 0
+        // Error: back reference to group 0
         assert!(matches!(
             lex_from_str(r#"(a)b\0"#),
             Err(AnreError::MessageWithRange(
@@ -1882,7 +1884,7 @@ mod tests {
             ))
         ));
 
-        // err: missing identifier for named back reference
+        // Error: missing identifier for named back reference
         assert!(matches!(
             lex_from_str(r#"\k<>)"#),
             Err(AnreError::MessageWithRange(
@@ -1902,13 +1904,13 @@ mod tests {
             ))
         ));
 
-        // err: missing '>' for named back reference
+        // Error: missing '>' for named back reference
         assert!(matches!(
             lex_from_str(r#"\k<abc"#),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // err: missing '<' for named back reference
+        // Error: missing '<' for named back reference
         assert!(matches!(
             lex_from_str(r#"\kabc>"#),
             Err(AnreError::MessageWithRange(
@@ -1934,25 +1936,25 @@ mod tests {
         assert_eq!(
             lex_from_str(r#"(?=a)(?!b)(?<=c)(?<!d)"#).unwrap(),
             vec![
-                // look ahead
+                // look-ahead
                 TokenWithRange::new(Token::LookAheadGroupStart, Range::from_detail(0, 0, 0, 3)),
                 TokenWithRange::new(Token::Char('a'), Range::from_detail(3, 0, 3, 1)),
                 TokenWithRange::new(Token::GroupEnd, Range::from_detail(4, 0, 4, 1)),
-                // look ahead - negative
+                // look-ahead - negative
                 TokenWithRange::new(
                     Token::LookAheadNegativeGroupStart,
                     Range::from_detail(5, 0, 5, 3)
                 ),
                 TokenWithRange::new(Token::Char('b'), Range::from_detail(8, 0, 8, 1)),
                 TokenWithRange::new(Token::GroupEnd, Range::from_detail(9, 0, 9, 1)),
-                // look behind
+                // look-behind
                 TokenWithRange::new(
                     Token::LookBehindGroupStart,
                     Range::from_detail(10, 0, 10, 4)
                 ),
                 TokenWithRange::new(Token::Char('c'), Range::from_detail(14, 0, 14, 1)),
                 TokenWithRange::new(Token::GroupEnd, Range::from_detail(15, 0, 15, 1)),
-                // look behind - negative
+                // look-behind - negative
                 TokenWithRange::new(
                     Token::LookBehindNegativeGroupStart,
                     Range::from_detail(16, 0, 16, 4)

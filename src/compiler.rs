@@ -44,13 +44,13 @@ pub fn compile(program: &Program) -> Result<Map, AnreError> {
 }
 
 pub struct Compiler<'a> {
-    // The AST
+    // AST to compile.
     program: &'a Program,
 
-    // The compilation target
+    // Compilation target object file.
     map: &'a mut Map,
 
-    // Index of the current route
+    // Index of the route currently being emitted.
     current_route_index: usize,
 }
 
@@ -72,19 +72,19 @@ impl<'a> Compiler<'a> {
         self.current_route_index = index;
     }
 
-    // Get a mutable reference to the current route in the object file.
+    // Returns a mutable reference to the current route in the object file.
     fn get_current_route_ref_mut(&mut self) -> &mut Route {
         &mut self.map.routes[self.current_route_index]
     }
 
-    // Start the compilation process by emitting the main program.
+    // Starts compilation by emitting the main program route.
     fn compile(&mut self) -> Result<(), AnreError> {
         self.emit_program(self.program)
     }
 
-    // Compile the main route of the program.
+    // Compiles the main route of the program.
     fn emit_program(&mut self, program: &Program) -> Result<(), AnreError> {
-        // Create an index capture group to wrap for the root expression component.
+        // Create an index capture group that wraps the root expression component.
         //
         // ```diagram
         //   /---------------------------------------------------------\
@@ -110,14 +110,14 @@ impl<'a> Compiler<'a> {
         let capture_start_transition = CaptureStartTransition::new(capture_group_index);
         let capture_end_transition = CaptureEndTransition::new(capture_group_index);
 
-        // connect wrapper 'in' node to the program 'in' node.
+        // Connect the wrapper `in` node to the program `in` node.
         route.create_path(
             in_node_index,
             root_expression_component.in_node_index,
             Transition::CaptureStart(capture_start_transition),
         );
 
-        // connect the program 'out' node to wrapper 'out' node.
+        // Connect the program `out` node to the wrapper `out` node.
         route.create_path(
             root_expression_component.out_node_index,
             out_node_index,
@@ -127,7 +127,7 @@ impl<'a> Compiler<'a> {
         let is_fixed_matching_begin_point =
             check_first_expression_is_start_assertion(&program.expression);
 
-        // update the program ports
+        // Update the program entry and exit ports.
         route.entry_node_index = in_node_index;
         route.exit_node_index = out_node_index;
         route.is_fixed_matching_begin_point = is_fixed_matching_begin_point;
@@ -135,7 +135,7 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
-    /// Compile an expression to a component
+    /// Compiles an expression into a component.
     fn emit_expression(&mut self, expression: &Expression) -> Result<Component, AnreError> {
         let result = match expression {
             Expression::Literal(literal) => self.emit_literal(literal)?,
@@ -167,9 +167,9 @@ impl<'a> Compiler<'a> {
         // ```
         //
         // The "group" in ANRE is different from the "group" in traditional regular expressions.
-        // In ANRE, a "group" is a series of expressions, it is used to group patterns and
+        // In ANRE, a group is a sequence of expressions used to group patterns and
         // modify operator precedence and associativity.
-        // In terms of functionality, the "group" in ANRE is equivalent to the "non-capturing group"
+        // Functionally, a group in ANRE is equivalent to a non-capturing group
         // in traditional regular expressions.
 
         let mut components = vec![];
@@ -178,15 +178,15 @@ impl<'a> Compiler<'a> {
         }
 
         let compontent = if components.is_empty() {
-            // empty expression
+            // Empty group.
             self.emit_empty()?
         } else if components.len() == 1 {
-            // single expression.
-            // maybe a group also, so return the underlay component directly
-            // to eliminates the nested group, e.g. '(((...)))'.
+            // Single expression.
+            // It may still be a group, so return the underlying component directly
+            // to eliminate nested groups, for example `(((...)))`.
             components.pop().unwrap()
         } else {
-            // multiple expressions, wrap them with a group component
+            // Multiple expressions: connect them into one grouped component.
             let route = self.get_current_route_ref_mut();
             for idx in 0..(components.len() - 1) {
                 let current_out_node_index = components[idx].out_node_index;
@@ -297,7 +297,7 @@ impl<'a> Compiler<'a> {
                 self.emit_repetition_function_call(function_call.name, expression, &numbers)
             }
             FunctionName::IsBefore | FunctionName::IsNotBefore => {
-                // look-ahead assertion
+                // Look-ahead assertion.
                 // `A(?=B)` is equivalent to `is_before(A, B)` or `A.is_before(B)`.
                 let args = &function_call.args;
                 let FunctionArgument::Expression(expression) = &args[0] else {
@@ -317,7 +317,7 @@ impl<'a> Compiler<'a> {
                 self.emit_lookahead_assertion(expression, next_expression, negative)
             }
             FunctionName::IsAfter | FunctionName::IsNotAfter => {
-                // look-behind assertion
+                // Look-behind assertion.
                 // `(?<=B)A` is equivalent to `is_after(A, B)` or `A.is_after(B)`.
                 let args = &function_call.args;
                 let FunctionArgument::Expression(expression) = &args[0] else {
@@ -359,7 +359,7 @@ impl<'a> Compiler<'a> {
         );
 
         match function_name {
-            // Quantifier
+            // Quantifiers.
             FunctionName::Optional | FunctionName::OptionalLazy => {
                 // optional = {0,1}
                 self.emit_optional(expression, is_lazy)
@@ -404,7 +404,7 @@ impl<'a> Compiler<'a> {
 
                 if from > to {
                     return Err(AnreError::SyntaxIncorrect(
-                        "Repeated range values should be from small to large.".to_owned(),
+                        "Repetition range values must be in ascending order.".to_owned(),
                     ));
                 }
 
@@ -437,7 +437,7 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    /// Empty component only contains a unconditional jump transition.
+    /// An empty component contains only an unconditional jump transition.
     /// It is introduced by expressions such as `{0}`, `{0..0}`, etc.
     fn emit_empty(&mut self) -> Result<Component, AnreError> {
         // Empty component:
@@ -590,7 +590,7 @@ impl<'a> Compiler<'a> {
     ) -> Result<Component, AnreError> {
         if capture_group_index >= self.map.capture_groups.len() {
             return Err(AnreError::SyntaxIncorrect(format!(
-                "The group index ({}) of back-reference is out of range, the max index is: {}.",
+                "Backreference group index ({}) is out of range. Maximum index is {}.",
                 capture_group_index,
                 self.map.capture_groups.len() - 1
             )));
@@ -605,7 +605,7 @@ impl<'a> Compiler<'a> {
             i
         } else {
             return Err(AnreError::SyntaxIncorrect(format!(
-                "Cannot find the capture group with name: \"{}\".",
+            "Cannot find a capture group named \"{}\".",
                 name
             )));
         };
@@ -731,7 +731,7 @@ impl<'a> Compiler<'a> {
         expression: &Expression,
         times: usize,
     ) -> Result<Component, AnreError> {
-        // require `times > 1`
+        // Requires `times > 1`.
         self.continue_emit_repetition(expression, RepetitionType::Repeat(times), true)
     }
 
@@ -741,7 +741,7 @@ impl<'a> Compiler<'a> {
         from: usize,
         is_lazy: bool,
     ) -> Result<Component, AnreError> {
-        // require `from > 0`
+        // Requires `from > 0`.
         self.continue_emit_repetition(expression, RepetitionType::RepeatFrom(from), is_lazy)
     }
 
@@ -752,7 +752,7 @@ impl<'a> Compiler<'a> {
         to: usize,
         is_lazy: bool,
     ) -> Result<Component, AnreError> {
-        // require `from > 0` and `to > from`
+        // Requires `from > 0` and `to > from`.
         self.continue_emit_repetition(expression, RepetitionType::RepeatRange(from, to), is_lazy)
     }
 
@@ -913,7 +913,7 @@ impl<'a> Compiler<'a> {
         next_expression: &Expression,
         negative: bool,
     ) -> Result<Component, AnreError> {
-        // Look ahead assertions:
+        // Look-ahead assertions:
         //
         // - `A(?=B)`: `is_before(A, B)` or `A.is_before(B)`
         // - `A(?!B)`: `is_not_before(A, B)` or `A.is_not_before(B)`,
@@ -933,16 +933,16 @@ impl<'a> Compiler<'a> {
 
         let component = self.emit_expression(current_expression)?;
 
-        // 1. save the current route index
+        // 1. Save the current route index.
         let saved_route_index = self.get_current_route_index();
 
-        // 2. create new route
+        // 2. Create a new route.
         let sub_route_index = self.map.create_route();
 
-        // 3. switch to the new route
+        // 3. Switch to the new route.
         self.set_current_route_index(sub_route_index);
 
-        // 4. compile the next expression in the new route
+        // 4. Compile the next expression in the new route.
         let sub_component = self.emit_expression(next_expression)?;
 
         let sub_route = self.get_current_route_ref_mut();
@@ -950,10 +950,10 @@ impl<'a> Compiler<'a> {
         sub_route.exit_node_index = sub_component.out_node_index;
         sub_route.is_fixed_matching_begin_point = true;
 
-        // 5. restore to the previous route
+        // 5. Restore the previous route.
         self.set_current_route_index(saved_route_index);
 
-        // 6. join the sub_route to the current route by
+        // 6. Join the sub-route to the current route by
         //    appending jump transitions around the sub-component.
         let route = self.get_current_route_ref_mut();
         let in_node_index = route.create_node();
@@ -983,7 +983,7 @@ impl<'a> Compiler<'a> {
         previous_expression: &Expression,
         negative: bool,
     ) -> Result<Component, AnreError> {
-        // Look behind assertions:
+        // Look-behind assertions:
         //
         // - `is_after(A, B)`, `A.is_after(B)`, `(?<=B)A`
         // - `is_not_after(A, B)`, `A.is_not_after(B)`, `(?<!B)A`
@@ -1001,25 +1001,25 @@ impl<'a> Compiler<'a> {
         //   \-------- lookbehind assertion component -------/
         // ```
 
-        // 1. save the current route index
+        // 1. Save the current route index.
         let saved_route_index = self.get_current_route_index();
 
-        // 2. create new route
+        // 2. Create a new route.
         let sub_route_index = self.map.create_route();
 
-        // 3. switch to the new route
+        // 3. Switch to the new route.
         self.set_current_route_index(sub_route_index);
 
-        // 4. calculate the total length (in char) of previous expression
+        // 4. Calculate the total match length (in chars) of the previous expression.
         let match_length_enum = calculate_match_length(previous_expression);
         let MatchLength::Fixed(match_length) = match_length_enum else {
             return Err(AnreError::SyntaxIncorrect(
-                "Look behind assertion (is_after, is_not_after) requires a fixed length pattern."
+                "Look-behind assertions (is_after, is_not_after) require a fixed-length pattern."
                     .to_owned(),
             ));
         };
 
-        // 5. compile the previous expression in the new route
+        // 5. Compile the previous expression in the new route.
         let sub_component = self.emit_expression(previous_expression)?;
         let sub_route = self.get_current_route_ref_mut();
 
@@ -1027,11 +1027,11 @@ impl<'a> Compiler<'a> {
         sub_route.exit_node_index = sub_component.out_node_index;
         sub_route.is_fixed_matching_begin_point = true;
 
-        // 6. restore to the previous route
+        // 6. Restore the previous route.
         self.set_current_route_index(saved_route_index);
 
-        // 7. join the sub_route to the current route by
-        // appending jump transitions around the sub-component.
+        // 7. Join the sub-route to the current route by
+        //    appending jump transitions around the sub-component.
         let component = self.emit_expression(current_expression)?;
         let route = self.get_current_route_ref_mut();
         let in_node_index = route.create_node();
@@ -1116,7 +1116,7 @@ fn append_preset_charset(
         }
         _ => {
             return Err(AnreError::SyntaxIncorrect(format!(
-                "Can not append negative preset charset \"{}\" into charset.",
+            "Cannot append negative preset charset \"{}\" to a charset.",
                 name
             )));
         }
@@ -1145,7 +1145,7 @@ mod tests {
 
     #[test]
     fn test_compile_char() {
-        // single char
+        // Single character.
         for route in generate_routes(r#"'a'"#, r#"a"#) {
             let s = route.get_debug_text();
 
@@ -1163,7 +1163,7 @@ mod tests {
             );
         }
 
-        // sequence chars
+        // Character sequence.
         {
             let route = compile_from_anre(r#"('a', 'b', 'c')"#).unwrap();
             let s = route.get_debug_text();
@@ -1190,9 +1190,9 @@ mod tests {
             );
         }
 
-        // group
-        // note: the group in ANRE is different from it is in traditional regex,
-        // it is only a sequence pattern.
+        // Group.
+        // Note: a group in ANRE is different from one in traditional regex.
+        // It is only a sequence pattern.
         {
             let route = compile_from_anre(r#"('a',('b','c'), 'd')"#).unwrap();
             let s = route.get_debug_text();
@@ -1223,7 +1223,7 @@ mod tests {
             );
         }
 
-        // nested groups
+        // Nested groups.
         {
             let route = compile_from_anre(r#"('a',('b', ('c', 'd'), 'e'), 'f')"#).unwrap();
             let s = route.get_debug_text();
@@ -1309,7 +1309,7 @@ mod tests {
 
     #[test]
     fn test_compile_preset_charset() {
-        // positive preset charset
+        // Positive preset charset.
         for route in generate_routes(r#"('a', char_word, char_space, char_digit)"#, r#"a\w\s\d"#) {
             let s = route.get_debug_text();
 
@@ -1339,7 +1339,7 @@ mod tests {
             );
         }
 
-        // negative preset charset
+        // Negative preset charset.
         for route in generate_routes(
             r#"('a', char_not_word, char_not_space, char_not_digit)"#,
             r#"a\W\S\D"#,
@@ -1375,7 +1375,7 @@ mod tests {
 
     #[test]
     fn test_compile_charset() {
-        // contains char and range
+        // Contains characters and ranges.
         for route in generate_routes(r#"['a', '0'..'7']"#, r#"[a0-7]"#) {
             let s = route.get_debug_text();
 
@@ -1393,7 +1393,7 @@ mod tests {
             );
         }
 
-        // negative charset
+        // Negative charset.
         for route in generate_routes(r#"!['a','0'..'7']"#, r#"[^a0-7]"#) {
             let s = route.get_debug_text();
 
@@ -1411,7 +1411,7 @@ mod tests {
             );
         }
 
-        // contains preset charset
+        // Contains preset charsets.
         for route in generate_routes(r#"[char_word, char_space]"#, r#"[\w\s]"#) {
             let s = route.get_debug_text();
 
@@ -1429,7 +1429,7 @@ mod tests {
             );
         }
 
-        // nested charset
+        // Nested charset.
         {
             let route = compile_from_anre(r#"['a', ['x'..'z']]"#).unwrap();
             let s = route.get_debug_text();
@@ -1448,7 +1448,7 @@ mod tests {
             );
         }
 
-        // nested charset 2
+        // Nested charset (variant 2).
         {
             let route = compile_from_anre(r#"[['+', '-'], ['0'..'9', ['a'..'f']]]"#).unwrap();
             let s = route.get_debug_text();
@@ -1467,7 +1467,7 @@ mod tests {
             );
         }
 
-        // marcos
+        // Macros.
         {
             let route = compile_from_anre(
                 r#"
@@ -1492,7 +1492,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // err: negative preset charset in charset
+        // Error: negative preset charset inside a charset.
         {
             assert!(matches!(
                 compile_from_anre(r#"[char_not_word]"#),
@@ -1500,7 +1500,7 @@ define letter (['a'..'f'])
             ));
         }
 
-        // err: negative charset in charset
+        // Error: negative charset nested inside a charset.
         {
             assert!(matches!(
                 compile_from_anre(r#"['+', !['a'..'f']]"#),
@@ -1537,7 +1537,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // multiple operands
+        // Multiple operands.
         //
         // Note: "'a' || 'b' || 'c'" => "'a' || ('b' || 'c')"
         for route in generate_routes(r#"'a' || 'b' || 'c'"#, r#"a|b|c"#) {
@@ -1575,7 +1575,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // group and logic or (change precedence)
+        // Group and logical OR (changes precedence).
         for route in generate_routes(r#"('a' || 'b') || 'c'"#, r#"(?:a|b)|c"#) {
             let s = route.get_debug_text();
 
@@ -1611,7 +1611,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // group and logic or
+        // Group and logical OR.
         {
             let route = compile_from_anre(r#"('a', 'b') || 'c'"#).unwrap();
             let s = route.get_debug_text();
@@ -1643,7 +1643,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // operator precedence
+        // Operator precedence.
         //
         // Note: "'a', 'b' || 'c', 'd'" => "'a', ('b' || 'c'), 'd'"
         for route in generate_routes(r#"('a', 'b' || 'c', 'd')"#, r#"a(?:b|c)d"#) {
@@ -1707,7 +1707,7 @@ define letter (['a'..'f'])
 # {0}"
             );
 
-            // check 'is_fixed_matching_begin_point'
+            // Check `is_fixed_matching_begin_point`.
             assert!(route.routes[MAIN_ROUTE_INDEX].is_fixed_matching_begin_point);
         }
 
@@ -1735,7 +1735,7 @@ define letter (['a'..'f'])
 # {0}"
             );
 
-            // check the 'fixed_start_position' property
+            // Check the `is_fixed_matching_begin_point` property.
             assert!(!route.routes[MAIN_ROUTE_INDEX].is_fixed_matching_begin_point);
         }
     }
@@ -1961,7 +1961,7 @@ define letter (['a'..'f'])
 
     #[test]
     fn test_compile_optional() {
-        // greedy
+        // Greedy.
         for route in generate_routes(
             r#"'a'?"#, // anre
             r#"a?"#,   // regex
@@ -1987,7 +1987,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // lazy
+        // Lazy.
         for route in generate_routes(
             r#"'a'??"#, // anre
             r#"a??"#,   // regex
@@ -2016,7 +2016,7 @@ define letter (['a'..'f'])
 
     #[test]
     fn test_compile_repeat() {
-        // repeat 2
+        // Repeat 2 times.
         for route in generate_routes(
             r#"'a'{2}"#, // anre
             r#"a{2}"#,   // regex
@@ -2046,7 +2046,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // repeat 1
+        // Repeat 1 time.
         for route in generate_routes(
             r#"'a'{1}"#, // anre
             r#"a{1}"#,   // regex
@@ -2067,7 +2067,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // repeat 0
+        // Repeat 0 times.
         for route in generate_routes(
             r#"'a'{0}"#, // anre
             r#"a{0}"#,   // regex
@@ -2091,7 +2091,7 @@ define letter (['a'..'f'])
 
     #[test]
     fn test_compile_repeat_from() {
-        // {m,}
+        // `{m,}`.
         for route in generate_routes(
             r#"'a'{3..}"#, // anre
             r#"a{3,}"#,    // regex
@@ -2121,7 +2121,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // lazy
+        // Lazy.
         for route in generate_routes(
             r#"'a'{3..}?"#, // anre
             r#"a{3,}?"#,    // regex
@@ -2151,7 +2151,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // {1,} == one_or_more
+        // `{1,}` == one_or_more.
         {
             assert_str_eq!(
                 compile_from_anre(r#"'a'{1..}"#).unwrap().get_debug_text(),
@@ -2159,7 +2159,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // {1,}? == lazy one_or_more
+        // `{1,}?` == lazy one_or_more.
         {
             assert_str_eq!(
                 compile_from_anre(r#"'a'{1..}?"#).unwrap().get_debug_text(),
@@ -2167,7 +2167,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // {0,} == zero_or_more
+        // `{0,}` == zero_or_more.
         {
             assert_str_eq!(
                 compile_from_anre(r#"'a'{0..}"#).unwrap().get_debug_text(),
@@ -2175,7 +2175,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // {0,}? == lazy zero_or_more
+        // `{0,}?` == lazy zero_or_more.
         {
             assert_str_eq!(
                 compile_from_anre(r#"'a'{0..}?"#).unwrap().get_debug_text(),
@@ -2186,7 +2186,7 @@ define letter (['a'..'f'])
 
     #[test]
     fn test_compile_repeat_range() {
-        // greedy
+        // Greedy.
         for route in generate_routes(
             r#"'a'{3..5}"#, // anre
             r#"a{3,5}"#,    // regex
@@ -2216,7 +2216,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // lazy
+        // Lazy.
         for route in generate_routes(
             r#"'a'{3..5}?"#, // anre
             r#"a{3,5}?"#,    // regex
@@ -2246,7 +2246,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // {m, m}
+        // `{m, m}`.
         {
             assert_str_eq!(
                 compile_from_anre(r#"'a'{3..3}"#).unwrap().get_debug_text(),
@@ -2254,7 +2254,7 @@ define letter (['a'..'f'])
             )
         }
 
-        // {1, 1}
+        // `{1, 1}`.
         {
             assert_str_eq!(
                 compile_from_anre(r#"'a'{1..1}"#).unwrap().get_debug_text(),
@@ -2262,7 +2262,7 @@ define letter (['a'..'f'])
             )
         }
 
-        // {0, m}
+        // `{0, m}`.
         for route in generate_routes(
             r#"'a'{0..5}"#, // anre
             r#"a{0,5}"#,    // regex
@@ -2297,7 +2297,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // {0, m} lazy
+        // `{0, m}` lazy.
         for route in generate_routes(
             r#"'a'{0..5}?"#, // anre
             r#"a{0,5}?"#,    // regex
@@ -2332,7 +2332,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // {0, 1}
+        // `{0, 1}`.
         {
             assert_str_eq!(
                 compile_from_anre(r#"'a'{0..1}"#).unwrap().get_debug_text(),
@@ -2340,7 +2340,7 @@ define letter (['a'..'f'])
             )
         }
 
-        // {0, 1} lazy
+        // `{0, 1}` lazy.
         {
             assert_str_eq!(
                 compile_from_anre(r#"'a'{0..1}?"#).unwrap().get_debug_text(),
@@ -2348,7 +2348,7 @@ define letter (['a'..'f'])
             )
         }
 
-        // {0, 0}
+        // `{0, 0}`.
         {
             let route = compile_from_anre(r#"'a'{0..0}"#).unwrap();
             let s = route.get_debug_text();
@@ -2370,7 +2370,7 @@ define letter (['a'..'f'])
 
     #[test]
     fn test_compile_notation_optional() {
-        // optional
+        // Optional.
         for route in generate_routes(
             r#"'a'?"#, // anre
             r#"a?"#,   // regex
@@ -2396,7 +2396,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // lazy optional
+        // Lazy optional.
         for route in generate_routes(
             r#"'a'??"#, // anre
             r#"a??"#,   // regex
@@ -2425,7 +2425,7 @@ define letter (['a'..'f'])
 
     #[test]
     fn test_compile_notation_one_or_more() {
-        // one or more
+        // One or more.
         for route in generate_routes(
             r#"'a'+"#, // anre
             r#"a+"#,   // regex
@@ -2455,7 +2455,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // lazy one or more
+        // Lazy one or more.
         for route in generate_routes(
             r#"'a'+?"#, // anre
             r#"a+?"#,   // regex
@@ -2488,7 +2488,7 @@ define letter (['a'..'f'])
 
     #[test]
     fn test_compile_notation_zero_or_more() {
-        // zero or more
+        // Zero or more.
         for route in generate_routes(
             r#"'a'*"#, // anre
             r#"a*"#,   // regex
@@ -2523,7 +2523,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // lazy zero or more
+        // Lazy zero or more.
         for route in generate_routes(
             r#"'a'*?"#, // anre
             r#"a*?"#,   // regex
@@ -2561,7 +2561,7 @@ define letter (['a'..'f'])
 
     #[test]
     fn test_compile_is_before() {
-        // positive
+        // Positive case.
         for route in generate_routes(
             r#"'a'.is_before("xyz")"#, // anre
             r#"a(?=xyz)"#,             // regex
@@ -2591,7 +2591,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // negative
+        // Negative case.
         for route in generate_routes(
             r#"'a'.is_not_before("xyz")"#, // anre
             r#"a(?!xyz)"#,                 // regex
@@ -2621,7 +2621,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // err: syntax error
+        // Error: syntax error.
         {
             assert!(matches!(
                 compile_from_anre(r#"'a'.is_before()"#),
@@ -2632,7 +2632,7 @@ define letter (['a'..'f'])
 
     #[test]
     fn test_compile_is_after() {
-        // positive
+        // Positive case.
         for route in generate_routes(
             r#"'a'.is_after("xyz")"#, // anre
             r#"(?<=xyz)a"#,           // regex
@@ -2662,7 +2662,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // negative
+        // Negative case.
         for route in generate_routes(
             r#"'a'.is_not_after("xyz")"#, // anre
             r#"(?<!xyz)a"#,               // regex
@@ -2692,7 +2692,7 @@ define letter (['a'..'f'])
             );
         }
 
-        // err: syntax error
+        // Error: syntax error.
         {
             assert!(matches!(
                 compile_from_anre(r#"'a'.is_after()"#),
@@ -2700,7 +2700,7 @@ define letter (['a'..'f'])
             ));
         }
 
-        // err: variable length
+        // Error: variable-length pattern.
         {
             assert!(matches!(
                 compile_from_anre(r#"'a'.is_after("x" || "yz")"#),

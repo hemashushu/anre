@@ -7,10 +7,10 @@
 use std::fmt::Display;
 
 /// A `Transition` represents a state transition in a regular expression engine.
-/// Each transition contains logic to match a specific pattern (e.g., a character or string).
+/// Each transition contains logic to match a specific pattern (for example, a character or string).
 /// When executed, it processes the input character from a given position
 /// and returns the result: either a failure or a success with additional information
-/// (e.g., how many characters to move forward).
+/// (for example, how many characters to move forward).
 ///
 /// A transition is similar to the condition in an `if` statement in programming languages.
 #[derive(Debug)]
@@ -94,7 +94,7 @@ pub struct BackReferenceTransition {
     pub capture_group_index: usize, // Index of the capture group
 }
 
-/// Represents a transition that asserts an anchor (e.g., start or end of input).
+/// Represents a transition that asserts an anchor (for example, start or end of input).
 #[derive(Debug)]
 pub struct LineBoundaryAssertionTransition {
     // Indicates the type of anchor assertion
@@ -103,7 +103,7 @@ pub struct LineBoundaryAssertionTransition {
     pub is_end: bool,
 }
 
-/// Represents a transition that asserts a boundary (e.g., word boundary).
+/// Represents a transition that asserts a boundary (for example, word boundary).
 #[derive(Debug)]
 pub struct WordBoundaryAssertionTransition {
     // Indicates the type of boundary assertion

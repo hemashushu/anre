@@ -88,13 +88,13 @@ impl<'a> Parser<'a> {
                     Ok(())
                 } else {
                     Err(AnreError::MessageWithRange(
-                        format!("Expect token: {}.", token_description),
+                        format!("Expected token: {}.", token_description),
                         self.last_range,
                     ))
                 }
             }
             None => Err(AnreError::UnexpectedEndOfDocument(format!(
-                "Expect token: {}.",
+                "Expected token: {}.",
                 token_description
             ))),
         }
@@ -117,7 +117,7 @@ impl Parser<'_> {
 
         if self.peek_token(0).is_some() {
             return Err(AnreError::MessageWithRange(
-                "Only one expression is allowed at ANRE root, consider wrapping multiple expressions in a group.".to_owned(),
+                "Only one top-level expression is allowed. Wrap multiple expressions in a group.".to_owned(),
                 *self.peek_range(0).unwrap()
             ));
         }
@@ -150,7 +150,7 @@ impl Parser<'_> {
         // If you want to use a disjunction as a part of a bigger pattern,
         // you must group it.
         //
-        // e.g.
+        // For example:
         //
         // "ab|cd" == "(ab)|(cd)" != "a(b|c)d"
         //
@@ -170,9 +170,9 @@ impl Parser<'_> {
             // - right-associative (right-to-left associative)
             //   `a || b || c -> a || (b || c)`
             //
-            // call `parse_expression` for right-to-left associative, e.g.
+            // Call `parse_expression` for right-to-left associative parsing, for example:
             // `let right = self.parse_expression()?;`
-            // or call `parse_named_capture` for left-to-right associative, e.g.
+            // Or call `parse_named_capture` for left-to-right associative parsing, for example:
             // `let right = self.parse_named_capture()?;`
             //
             // currently right-associative is adopted for efficiency.
@@ -196,7 +196,7 @@ impl Parser<'_> {
         // In the traditional regular expressions, consecutive expressions
         // are implicitly grouped together,
         //
-        // e.g.
+        // For example:
         //
         // - `abc` = `('a', 'b', 'c')`
         // - `0[xX][0-9a-fA-F]+` = `('0', ['x', 'X'], one_or_more(['0'..'9', 'a'..'f', 'A'..'F']))`
@@ -220,7 +220,7 @@ impl Parser<'_> {
 
         if expressions.is_empty() {
             return Err(AnreError::MessageWithRange(
-                "Encountered a blank expression.".to_owned(),
+                "Encountered an empty expression.".to_owned(),
                 self.last_range,
             ));
         }
@@ -285,7 +285,7 @@ impl Parser<'_> {
         // - `(?=...)`  Positive lookahead
         // - `(?!...)`  Negative lookahead
         //
-        // e.g.
+        // For example:
         //
         // `a(?=b)` = `is_before('a', 'b')`, `'a'.is_before('b')`
         //
@@ -365,7 +365,7 @@ impl Parser<'_> {
                             if *lazy {
                                 return Err(AnreError::MessageWithRange(
                                     format!(
-                                        "Specified repetition does not support lazy mode, \"{{{}}}?\" is not allowed.",
+                                        "Fixed repetition does not support lazy mode: \"{{{}}}?\".",
                                         n
                                     ),
                                     self.last_range,
@@ -391,7 +391,7 @@ impl Parser<'_> {
                                 if *lazy {
                                     return Err(AnreError::MessageWithRange(
                                         format!(
-                                            "Specified repetition does not support lazy mode, \"{{{},{}}}?\" is not allowed.",
+                                            "Fixed repetition does not support lazy mode: \"{{{},{}}}?\".",
                                             m, n
                                         ),
                                         self.last_range,
@@ -472,7 +472,7 @@ impl Parser<'_> {
                 // - `(?<=...)` Positive lookbehind
                 // - `(?<!...)` Negative lookbehind
                 //
-                // e.g.
+                // For example:
                 //
                 // `(?<=a)b` = `is_after('b', 'a')`, `'b'.is_after('a')`
                 //
@@ -574,7 +574,7 @@ impl Parser<'_> {
             }
             _ => {
                 return Err(AnreError::MessageWithRange(
-                    "Expect a literal.".to_owned(),
+                    "Expected a literal.".to_owned(),
                     self.last_range,
                 ));
             }
@@ -608,7 +608,7 @@ impl Parser<'_> {
                     elements.push(CharSetElement::Char(c));
                 }
                 Token::CharRange(from, to) => {
-                    // char range
+                    // character range
                     let char_range = CharRange {
                         start: *from,
                         end_inclusive: *to,
@@ -617,7 +617,7 @@ impl Parser<'_> {
                     elements.push(CharSetElement::CharRange(char_range));
                 }
                 Token::PresetCharSet(preset_charset_name_ref) => {
-                    // preset char set
+                    // preset charset
                     let preset_charset_name =
                         PresetCharSetName::try_from(*preset_charset_name_ref).unwrap();
                     self.next_token(); // consume preset charset
@@ -625,7 +625,7 @@ impl Parser<'_> {
                 }
                 _ => {
                     return Err(AnreError::MessageWithRange(
-                        "Unsupported char set element.".to_owned(),
+                        "Unsupported character set element.".to_owned(),
                         *self.peek_range(0).unwrap(),
                     ));
                 }
@@ -684,7 +684,7 @@ mod tests {
             assert_eq!(program.to_string(), r#"'a'"#);
         }
 
-        // merge continous chars
+        // Merge continuous chars.
         {
             let program = parse_from_str(r#".foo"#).unwrap();
 
@@ -775,13 +775,13 @@ mod tests {
             r#"(repeat('a', 3), repeat_range('b', 5, 7), repeat_from('c', 11), repeat_range_lazy('y', 5, 7), repeat_from_lazy('z', 11))"#
         );
 
-        // err: '{m}?' is not allowed
+        // Error: '{m}?' is not allowed
         assert!(matches!(
             parse_from_str(r#"a{3}?"#,),
             Err(AnreError::MessageWithRange(_, _))
         ));
 
-        // err: '{m,m}?' is not allowed
+        // Error: '{m,m}?' is not allowed
         assert!(matches!(
             parse_from_str(r#"a{3,3}?"#,),
             Err(AnreError::MessageWithRange(_, _))

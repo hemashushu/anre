@@ -11,7 +11,7 @@ use crate::ast::{Expression, FunctionArgument, FunctionName, Literal};
 /// Calculate the match length of an expression.
 ///
 /// The match length is the number of characters that the expression can match.
-/// The "look behind assertion" requires the match length to be fixed.
+/// The "look-behind assertion" requires the match length to be fixed.
 pub fn calculate_match_length(exp: &Expression) -> MatchLength {
     match exp {
         Expression::Literal(literal) => match literal {

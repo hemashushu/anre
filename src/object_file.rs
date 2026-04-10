@@ -255,7 +255,7 @@ impl Route {
 //   \----- literal component -----/
 // ```
 //
-// Component can be nested, e.g. a group component can contain another group component.
+// Component can be nested, for example a group component can contain another group component.
 //
 // The following diagram illustrates a group component that wraps two components,
 // and connects them with jump transitions.

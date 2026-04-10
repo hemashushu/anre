@@ -10,10 +10,5 @@ repository = "https://github.com/hemashushu/anre"
 keywords = ["regex", "regex-anre", "anre"]
 categories = []
 
-[dependencies]
-
 [dev-dependencies]
 pretty_assertions = "1.4.0"
-# regex = "1.12.3"
-
-[features]

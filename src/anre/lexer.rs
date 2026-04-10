@@ -102,13 +102,13 @@ impl<'a> Lexer<'a> {
                     Ok(())
                 } else {
                     Err(AnreError::MessageWithPosition(
-                        format!("Expect char {}.", char_description),
+                        format!("Expected character {}.", char_description),
                         self.last_position,
                     ))
                 }
             }
             None => Err(AnreError::UnexpectedEndOfDocument(format!(
-                "Expect char {}.",
+                "Expected character {}.",
                 char_description
             ))),
         }
@@ -323,7 +323,7 @@ impl Lexer<'_> {
                 }
                 current_char => {
                     return Err(AnreError::MessageWithPosition(
-                        format!("Unexpected char '{}'.", current_char),
+                        format!("Unexpected character '{}'.", current_char),
                         *self.peek_position(0).unwrap(),
                     ));
                 }
@@ -395,7 +395,7 @@ impl Lexer<'_> {
                 }
                 _ => {
                     return Err(AnreError::MessageWithPosition(
-                        format!("Invalid char '{}' for identifier.", current_char),
+                        format!("Invalid character '{}' in identifier.", current_char),
                         *self.peek_position(0).unwrap(),
                     ));
                 }
@@ -453,7 +453,7 @@ impl Lexer<'_> {
 
         let v = num_buffer.parse::<usize>().map_err(|_| {
             AnreError::MessageWithRange(
-                format!("Can not convert \"{}\" to integer number.", num_buffer),
+                format!("Cannot convert \"{}\" to an integer.", num_buffer),
                 number_range,
             )
         })?;
@@ -506,11 +506,11 @@ impl Lexer<'_> {
                                     }
                                     'u' => {
                                         if self.peek_char_and_equals(0, '{') {
-                                            // unicode code point, e.g. '\u{2d}', '\u{6587}'
+                                            // Unicode code point, for example '\u{2d}', '\u{6587}'
                                             self.unescape_unicode_code_point()?
                                         } else {
                                             return Err(AnreError::MessageWithPosition(
-                                                "Missing the brace for unicode escape sequence."
+                                                "Missing opening brace for Unicode escape sequence."
                                                     .to_owned(),
                                                 self.last_position,
                                             ));
@@ -530,7 +530,7 @@ impl Lexer<'_> {
                             None => {
                                 // `\` + EOF
                                 return Err(AnreError::UnexpectedEndOfDocument(
-                                    "Incomplete escape character sequence.".to_owned(),
+                                    "Incomplete escape sequence.".to_owned(),
                                 ));
                             }
                         }
@@ -538,7 +538,7 @@ impl Lexer<'_> {
                     '\'' => {
                         // `''`
                         return Err(AnreError::MessageWithRange(
-                            "Empty char.".to_owned(),
+                            "Empty character literal.".to_owned(),
                             Range::new(&self.pop_position_from_stack(), &self.last_position),
                         ));
                     }
@@ -551,7 +551,7 @@ impl Lexer<'_> {
             None => {
                 // `'EOF`
                 return Err(AnreError::UnexpectedEndOfDocument(
-                    "Incomplete character.".to_owned(),
+                    "Incomplete character literal.".to_owned(),
                 ));
             }
         };
@@ -564,14 +564,14 @@ impl Lexer<'_> {
             Some(_) => {
                 // `'a?`
                 return Err(AnreError::MessageWithPosition(
-                    "Expected a quote for char".to_owned(),
+                    "Expected a closing quote for a character literal.".to_owned(),
                     self.last_position,
                 ));
             }
             None => {
                 // `'aEOF`
                 return Err(AnreError::UnexpectedEndOfDocument(
-                    "Incomplete character.".to_owned(),
+                    "Incomplete character literal.".to_owned(),
                 ));
             }
         }
@@ -604,7 +604,7 @@ impl Lexer<'_> {
                     _ => {
                         return Err(AnreError::MessageWithPosition(
                             format!(
-                                "Invalid character '{}' for unicode escape sequence.",
+                                "Invalid character '{}' in Unicode escape sequence.",
                                 current_char
                             ),
                             *self.peek_position(0).unwrap(),
@@ -626,7 +626,7 @@ impl Lexer<'_> {
 
         if codepoint_buffer.len() > 6 {
             return Err(AnreError::MessageWithRange(
-                "Unicode point code exceeds six digits.".to_owned(),
+                "Unicode code point exceeds six digits.".to_owned(),
                 Range::new(&self.position_stack.pop().unwrap(), &self.last_position),
             ));
         }
@@ -637,7 +637,7 @@ impl Lexer<'_> {
 
         if codepoint_buffer.is_empty() {
             return Err(AnreError::MessageWithRange(
-                "Empty unicode code point.".to_owned(),
+                "Unicode escape sequence has an empty code point.".to_owned(),
                 codepoint_range,
             ));
         }
@@ -653,7 +653,7 @@ impl Lexer<'_> {
             Ok(c)
         } else {
             Err(AnreError::MessageWithRange(
-                "Invalid unicode code point.".to_owned(),
+                "Invalid Unicode code point.".to_owned(),
                 codepoint_range,
             ))
         }
@@ -715,12 +715,12 @@ impl Lexer<'_> {
                                         }
                                         'u' => {
                                             if self.peek_char_and_equals(0, '{') {
-                                                // unicode code point, e.g. '\u{2d}', '\u{6587}'
+                                                // Unicode code point, for example '\u{2d}', '\u{6587}'
                                                 let ch = self.unescape_unicode_code_point()?;
                                                 string_buffer.push(ch);
                                             } else {
                                                 return Err(AnreError::MessageWithPosition(
-                                                    "Missing opening brace for unicode escape sequence.".to_owned(),
+                                                    "Missing opening brace for Unicode escape sequence.".to_owned(),
                                                     self.last_position
                                                 ));
                                             }
@@ -739,7 +739,7 @@ impl Lexer<'_> {
                                 None => {
                                     // `\` + EOF
                                     return Err(AnreError::UnexpectedEndOfDocument(
-                                        "Incomplete character escape sequence.".to_owned(),
+                                        "Incomplete escape sequence.".to_owned(),
                                     ));
                                 }
                             }
@@ -761,7 +761,7 @@ impl Lexer<'_> {
                 None => {
                     // Incomplete string literal (`"...EOF`).
                     return Err(AnreError::UnexpectedEndOfDocument(
-                        "Incomplete string.".to_owned(),
+                        "Incomplete string literal.".to_owned(),
                     ));
                 }
             }
@@ -930,7 +930,7 @@ mod tests {
             vec![Token::ParenthesisOpen, Token::ParenthesisClose]
         );
 
-        // Testing the ranges
+        // Test ranges.
 
         assert_eq!(lex_from_str("  ").unwrap(), vec![]);
 
@@ -1037,7 +1037,7 @@ mod tests {
             ]
         );
 
-        // Testing the ranges
+        // Test ranges.
 
         assert_eq!(
             lex_from_str("hello ASON").unwrap(),
@@ -1053,7 +1053,7 @@ mod tests {
             ]
         );
 
-        // err: invalid char
+        // Error: invalid char
         assert!(matches!(
             lex_from_str("abc&xyz"),
             Err(AnreError::MessageWithPosition(
@@ -1074,7 +1074,7 @@ mod tests {
             vec![Token::new_keyword("define"), Token::new_keyword("as")]
         );
 
-        // Testing the ranges
+        // Test ranges.
 
         // "[\n    define\n    as\n]"
         //  01 23456789012 3456789 0   // index
@@ -1143,7 +1143,7 @@ mod tests {
             ]
         );
 
-        // err: invalid char for decimal number
+        // Error: invalid char for decimal number
         assert!(matches!(
             lex_from_str_without_location("12x34"),
             Err(AnreError::MessageWithPosition(
@@ -1156,7 +1156,7 @@ mod tests {
             ))
         ));
 
-        // err: unsupported hexadecimal number (starting with "0x")
+        // Error: unsupported hexadecimal number (starting with "0x")
         assert!(matches!(
             lex_from_str_without_location("0x1234"),
             Err(AnreError::MessageWithPosition(
@@ -1245,19 +1245,19 @@ mod tests {
             vec![Token::Char('\0')]
         );
 
-        // escape char, unicode
+    // Unicode escape sequence.
         assert_eq!(
             lex_from_str_without_location("'\\u{2d}'").unwrap(),
             vec![Token::Char('-')]
         );
 
-        // escape char, unicode
+    // Unicode escape sequence.
         assert_eq!(
             lex_from_str_without_location("'\\u{6587}'").unwrap(),
             vec![Token::Char('文')]
         );
 
-        // Testing the ranges
+        // Test ranges.
 
         assert_eq!(
             lex_from_str("'a' '文' '\\t' '\\u{6587}'").unwrap(),
@@ -1281,7 +1281,7 @@ mod tests {
             ]
         );
 
-        // err: empty char
+        // Error: empty char
         assert!(matches!(
             lex_from_str("''"),
             Err(AnreError::MessageWithRange(
@@ -1301,19 +1301,19 @@ mod tests {
             ))
         ));
 
-        // err: empty char, missing the char
+        // Error: empty char, missing the char
         assert!(matches!(
             lex_from_str("'"),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // err: incomplete char, missing the right quote, encounter EOF
+        // Error: incomplete char, missing the right quote, encountered EOF
         assert!(matches!(
             lex_from_str("'a"),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // err: invalid char, expect the right quote, encounter another char
+        // Error: invalid char, expect the right quote, encounter another char
         assert!(matches!(
             lex_from_str("'ab"),
             Err(AnreError::MessageWithPosition(
@@ -1326,7 +1326,7 @@ mod tests {
             ))
         ));
 
-        // err: invalid char, expect the right quote, encounter another char
+        // Error: invalid char, expect the right quote, encounter another char
         assert!(matches!(
             lex_from_str("'ab'"),
             Err(AnreError::MessageWithPosition(
@@ -1339,7 +1339,7 @@ mod tests {
             ))
         ));
 
-        // err: unsupported escape char \v
+        // Error: unsupported escape char \v
         assert!(matches!(
             lex_from_str(r#"'\v'"#),
             Err(AnreError::MessageWithRange(
@@ -1359,7 +1359,7 @@ mod tests {
             ))
         ));
 
-        // err: unsupported hex escape "\x.."
+        // Error: unsupported hex escape "\x.."
         assert!(matches!(
             lex_from_str(r#"'\x33'"#),
             Err(AnreError::MessageWithRange(
@@ -1379,7 +1379,7 @@ mod tests {
             ))
         ));
 
-        // err: empty unicode escape string
+        // Error: empty unicode escape string
         // "'\\u{}'"
         //  01 2345     // index
         assert!(matches!(
@@ -1401,7 +1401,7 @@ mod tests {
             ))
         ));
 
-        // err: invalid unicode code point, digits too much
+        // Error: invalid unicode code point, digits too much
         // "'\\u{10001111}'"
         //  01 234567890123     // index
         assert!(matches!(
@@ -1423,7 +1423,7 @@ mod tests {
             ))
         ));
 
-        // err: invalid unicode code point, code point out of range
+        // Error: invalid unicode code point, code point out of range
         // "'\\u{123456}'"
         //  01 2345678901   // index
         assert!(matches!(
@@ -1445,7 +1445,7 @@ mod tests {
             ))
         ));
 
-        // err: invalid char in the unicode escape sequence
+        // Error: invalid char in the unicode escape sequence
         assert!(matches!(
             lex_from_str("'\\u{12mn}''"),
             Err(AnreError::MessageWithPosition(
@@ -1458,7 +1458,7 @@ mod tests {
             ))
         ));
 
-        // err: missing the closing brace for unicode escape sequence
+        // Error: missing the closing brace for unicode escape sequence
         assert!(matches!(
             lex_from_str("'\\u{1234'"),
             Err(AnreError::MessageWithPosition(
@@ -1471,13 +1471,13 @@ mod tests {
             ))
         ));
 
-        // err: incomplete unicode escape sequence, encounter EOF
+        // Error: incomplete unicode escape sequence, encountered EOF
         assert!(matches!(
             lex_from_str("'\\u{1234"),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // err: missing left brace for unicode escape sequence
+        // Error: missing left brace for unicode escape sequence
         assert!(matches!(
             lex_from_str("'\\u1234}'"),
             Err(AnreError::MessageWithPosition(
@@ -1545,7 +1545,7 @@ mod tests {
             vec![Token::new_string("\\\'\"\t\r\n\0-文"),]
         );
 
-        // Testing the ranges
+        // Test ranges.
         // "abc" "文字😊"
         // 01234567 8 9 0
 
@@ -1563,25 +1563,25 @@ mod tests {
             ]
         );
 
-        // err: incomplete string, missing the closed quote
+        // Error: incomplete string, missing the closed quote
         assert!(matches!(
             lex_from_str("\"abc"),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // err: incomplete string, missing the closed quote, ends with \n
+        // Error: incomplete string, missing the closed quote, ends with \n
         assert!(matches!(
             lex_from_str("\"abc\n"),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // err: incomplete string, missing the closed quote, ends with whitespaces/other chars
+        // Error: incomplete string, missing the closed quote, ends with whitespaces/other chars
         assert!(matches!(
             lex_from_str("\"abc\n   "),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // err: unsupported escape char \v
+        // Error: unsupported escape char \v
         assert!(matches!(
             lex_from_str(r#""abc\vxyz""#),
             Err(AnreError::MessageWithPosition(
@@ -1594,7 +1594,7 @@ mod tests {
             ))
         ));
 
-        // err: unsupported hex escape "\x.."
+        // Error: unsupported hex escape "\x.."
         assert!(matches!(
             lex_from_str(r#""abc\x33xyz""#),
             Err(AnreError::MessageWithPosition(
@@ -1607,7 +1607,7 @@ mod tests {
             ))
         ));
 
-        // err: empty unicode escape string
+        // Error: empty unicode escape string
         // "abc\u{}"
         // 012345678    // index
         assert!(matches!(
@@ -1629,7 +1629,7 @@ mod tests {
             ))
         ));
 
-        // err: invalid unicode code point, too much digits
+        // Error: invalid unicode code point, too many digits
         // "abc\u{1000111}xyz"
         // 0123456789023456789  // index
         assert!(matches!(
@@ -1651,7 +1651,7 @@ mod tests {
             ))
         ));
 
-        // err: invalid unicode code point, code point out of range
+        // Error: invalid unicode code point, code point out of range
         // "abc\u{123456}xyz"
         // 012345678901234567   // index
         assert!(matches!(
@@ -1673,7 +1673,7 @@ mod tests {
             ))
         ));
 
-        // err: invalid char in the unicode escape sequence
+        // Error: invalid char in the unicode escape sequence
         assert!(matches!(
             lex_from_str(r#""abc\u{12mn}xyz""#),
             Err(AnreError::MessageWithPosition(
@@ -1686,7 +1686,7 @@ mod tests {
             ))
         ));
 
-        // err: missing the closing brace for unicode escape sequence
+        // Error: missing the closing brace for unicode escape sequence
         assert!(matches!(
             lex_from_str(r#""abc\u{1234""#),
             Err(AnreError::MessageWithPosition(
@@ -1699,13 +1699,13 @@ mod tests {
             ))
         ));
 
-        // err: incomplete unicode escape sequence, encounter EOF
+        // Error: incomplete unicode escape sequence, encountered EOF
         assert!(matches!(
             lex_from_str(r#""abc\u{1234"#),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // err: missing left brace for unicode escape sequence
+        // Error: missing left brace for unicode escape sequence
         assert!(matches!(
             lex_from_str(r#""abc\u1234}xyz""#),
             Err(AnreError::MessageWithPosition(
@@ -1739,7 +1739,7 @@ mod tests {
             ]
         );
 
-        // Testing the ranges
+        // Test ranges.
 
         assert_eq!(
             lex_from_str("foo // bar").unwrap(),
@@ -1792,7 +1792,7 @@ mod tests {
             vec![Token::Number(7), Token::Number(19),]
         );
 
-        // Testing the ranges
+        // Test ranges.
 
         assert_eq!(
             lex_from_str("foo /* hello */ bar").unwrap(),
@@ -1810,25 +1810,25 @@ mod tests {
 
         assert_eq!(lex_from_str("/* abc\nxyz */ /* hello */").unwrap(), vec![]);
 
-        // err: incomplete, missing "*/"
+        // Error: incomplete, missing "*/"
         assert!(matches!(
             lex_from_str("7 /* 11"),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // err: incomplete, missing "*/", ends with \n
+        // Error: incomplete, missing "*/", ends with \n
         assert!(matches!(
             lex_from_str("7 /* 11\n"),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // err: incomplete, unpaired, missing "*/"
+        // Error: incomplete, unpaired, missing "*/"
         assert!(matches!(
             lex_from_str("a /* b /* c */"),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // err: incomplete, unpaired, missing "*/", ends with \n
+        // Error: incomplete, unpaired, missing "*/", ends with \n
         assert!(matches!(
             lex_from_str("a /* b /* c */\n"),
             Err(AnreError::UnexpectedEndOfDocument(_))

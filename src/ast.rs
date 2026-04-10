@@ -33,8 +33,8 @@ pub enum Expression {
     Group(Vec<Expression>),
 
     /**
-     * Represents a function call, which can be a quantifier (e.g., `optional()`, `one_or_more()`)
-     * or an assertion (e.g., `is_before()`, `is_after()`,
+     * Represents a function call, which can be a quantifier (for example, `optional()`, `one_or_more()`)
+     * or an assertion (for example, `is_before()`, `is_after()`,
      */
     FunctionCall(Box<FunctionCall>),
 
@@ -64,7 +64,7 @@ pub enum FunctionArgument {
 #[derive(Debug, PartialEq)]
 pub enum Literal {
     // The "any character" literal `.` matches any single character
-    // except for line terminators (e.g., `\n`, `\r`).
+    // except for line terminators (for example, `\n`, `\r`).
     AnyChar,
 
     // A character literal represents a single character.
