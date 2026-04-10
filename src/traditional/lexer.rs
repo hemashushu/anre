@@ -115,8 +115,6 @@ use crate::{
 
 use super::token::{Repetition, Token, TokenWithRange};
 
-pub const LEXER_PEEK_CHAR_MAX_COUNT: usize = 3;
-
 pub fn lex_from_str(s: &str) -> Result<Vec<TokenWithRange>, AnreError> {
     let mut chars = s.chars();
     let mut char_position_iter = CharsWithPositionIter::new(&mut chars);
@@ -176,11 +174,6 @@ impl<'a> Lexer<'a> {
         matches!(
             self.upstream.peek(offset),
             Some(CharWithPosition { character, .. }) if character == &expected_char)
-    }
-
-    /// Pushes the position of the character most recently consumed by `next_char()`.
-    fn push_last_position_into_stack(&mut self) {
-        self.position_stack.push(self.last_position);
     }
 
     /// Pushes the current input position without consuming a character.
@@ -670,7 +663,7 @@ impl Lexer<'_> {
                     'b' | 'B' => {
                         let c = *current_char;
                         self.next_char();
-                        Token::WordBoundaryAssertion(if c == 'B' { true } else { false })
+                        Token::WordBoundaryAssertion(c == 'B')
                     }
                     // back reference by index
                     '1'..='9' => {
@@ -723,7 +716,7 @@ impl Lexer<'_> {
             }
         };
 
-        let token_range = Range::new(&&self.pop_position_from_stack(), &self.last_position);
+        let token_range = Range::new(&self.pop_position_from_stack(), &self.last_position);
 
         Ok(TokenWithRange::new(token, token_range))
     }
@@ -808,7 +801,7 @@ impl Lexer<'_> {
                             "Word boundary assertions are not supported in charset.".to_owned(),
                             Range::new(
                                 &self.pop_position_from_stack(),
-                                &self.peek_position(0).unwrap(),
+                                self.peek_position(0).unwrap(),
                             ),
                         ));
                     }
@@ -817,7 +810,7 @@ impl Lexer<'_> {
                             "Back references are not supported in charset.".to_owned(),
                             Range::new(
                                 &self.pop_position_from_stack(),
-                                &self.peek_position(0).unwrap(),
+                                self.peek_position(0).unwrap(),
                             ),
                         ));
                     }
@@ -826,7 +819,7 @@ impl Lexer<'_> {
                             format!("Unsupported escape char '{}' in charset.", current_char),
                             Range::new(
                                 &self.pop_position_from_stack(),
-                                &self.peek_position(0).unwrap(),
+                                self.peek_position(0).unwrap(),
                             ),
                         ));
                     }
@@ -840,7 +833,7 @@ impl Lexer<'_> {
             }
         };
 
-        let token_range = Range::new(&&self.pop_position_from_stack(), &self.last_position);
+        let token_range = Range::new(&self.pop_position_from_stack(), &self.last_position);
 
         Ok(TokenWithRange::new(token, token_range))
     }
@@ -898,7 +891,7 @@ impl Lexer<'_> {
 
         self.consume_char_and_assert('}', "closing brace for unicode escape sequence")?;
 
-        let codepoint_range = Range::new(&&self.pop_position_from_stack(), &self.last_position);
+        let codepoint_range = Range::new(&self.pop_position_from_stack(), &self.last_position);
 
         if codepoint_buffer.is_empty() {
             return Err(AnreError::MessageWithRange(

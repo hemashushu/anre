@@ -14,7 +14,7 @@ use crate::{
     object_file::{Component, Map, Route},
     transition::{
         AnyCharTransition, BackReferenceTransition, CaptureEndTransition, CaptureStartTransition,
-        CharSetItem, CharSetTransition, CharTransition, CounterIncTransition,
+        CharSetItem, CharSetTransition, CharTransition, CounterLoadAndIncTransition,
         CounterResetTransition, CounterSaveTransition, JumpTransition,
         LineBoundaryAssertionTransition, LookAheadAssertionTransition,
         LookBehindAssertionTransition, RepetitionBackTransition, RepetitionForwardTransition,
@@ -804,6 +804,9 @@ impl<'a> Compiler<'a> {
     ) -> Result<Component, AnreError> {
         // Greedy repetition:
         //
+        // Note: since the repetition may be nested, we need to use a counter and
+        // a pair of save/load transitions to track the number of repetitions.
+        //
         // ```diagram
         //    /-------------------------------------------------------------------------\
         //    |                                                                         |
@@ -811,7 +814,7 @@ impl<'a> Compiler<'a> {
         //    |              /--------------------------------------------\             |
         //    |              |                                            |             |
         //    |              |     | counter             | counter        |             |
-        //    |              |     | save                | inc            |             |
+        //    |              |     | save                | load & inc     |             |
         //    |              |     | transition          | transition     |             |
         //    |  in          |     |                     |                |             |
         //    |  node        v     v     /-----------\   v  right node    |       out   |
@@ -831,7 +834,7 @@ impl<'a> Compiler<'a> {
         //    /-------------------------------------------------------------------------\
         //    |                                                                         |
         //    |                    | counter             | counter                      |
-        //    |                    | save                | inc                          |
+        //    |                    | save                | load & inc                   |
         //    |                    | transition          | transition                   |
         //    |  in        left    |                     |                        out   |
         //    |  node      node    v     /-----------\   v  right node            node  |
@@ -868,7 +871,7 @@ impl<'a> Compiler<'a> {
         route.create_path(
             component.out_node_index,
             right_node_index,
-            Transition::CounterInc(CounterIncTransition),
+            Transition::CounterLoadAndInc(CounterLoadAndIncTransition),
         );
 
         let out_node_index = route.create_node();
@@ -1060,23 +1063,13 @@ fn check_first_expression_is_start_assertion(expression: &Expression) -> bool {
             if let Some(first_exp) = exps.first()
                 && check_first_expression_is_start_assertion(first_exp)
             {
-                return true;
+                true
             } else {
-                return false;
+                false
             }
         }
-        Expression::NameCapture(_, exp) => {
-            if check_first_expression_is_start_assertion(exp) {
-                return true;
-            }
-            false
-        }
-        Expression::IndexCapture(exp) => {
-            if check_first_expression_is_start_assertion(exp) {
-                return true;
-            }
-            false
-        }
+        Expression::NameCapture(_, exp) => check_first_expression_is_start_assertion(exp),
+        Expression::IndexCapture(exp) => check_first_expression_is_start_assertion(exp),
         Expression::FunctionCall(func) if func.name == FunctionName::IsStart => true,
         _ => false,
     }

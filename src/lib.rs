@@ -18,9 +18,9 @@ mod transition;
 mod match_length_calculator;
 
 pub mod utf8_codepoint_reader;
-// pub mod context;
+pub mod runtime_context;
 pub mod object_file;
-// pub mod process;
-// pub mod regex;
+pub mod process;
+pub mod regex;
 
-// pub use regex::Regex;
+pub use regex::Regex;

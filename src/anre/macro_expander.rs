@@ -132,11 +132,11 @@ fn find_and_replace_identifiers(
 ) {
     // Walk backwards so splicing does not invalidate the yet-to-be-visited indices.
     for idx in (0..source_tokens.len()).rev() {
-        if let Token::Identifier(id) = &source_tokens[idx].token {
-            if id == find_id {
-                // Replace the identifier token with the recorded macro body.
-                source_tokens.splice(idx..(idx + 1), replace_with.iter().cloned());
-            }
+        if let Token::Identifier(id) = &source_tokens[idx].token
+            && id == find_id
+        {
+            // Replace the identifier token with the recorded macro body.
+            source_tokens.splice(idx..(idx + 1), replace_with.iter().cloned());
         }
     }
 }
@@ -179,31 +179,6 @@ impl<'a> DefinitionExtractor<'a> {
             }
             None => None,
         }
-    }
-
-    fn peek_token(&self, offset: usize) -> Option<&Token> {
-        match self.upstream.peek(offset) {
-            Some(TokenWithRange { token, .. }) => Some(token),
-            None => None,
-        }
-    }
-
-    fn peek_token_with_range(&self, offset: usize) -> Option<&TokenWithRange> {
-        self.upstream.peek(offset)
-    }
-
-    fn peek_range(&self, offset: usize) -> Option<&Range> {
-        match self.upstream.peek(offset) {
-            Some(TokenWithRange { range, .. }) => Some(range),
-            None => None,
-        }
-    }
-
-    // Returns `true` when the token at `offset` matches `expected_token`.
-    fn peek_token_and_equals(&self, offset: usize, expected_token: &Token) -> bool {
-        matches!(
-            self.peek_token(offset),
-            Some(token) if token == expected_token)
     }
 
     fn consume_identifier(&mut self) -> Result<String, AnreError> {

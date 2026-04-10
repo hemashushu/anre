@@ -71,10 +71,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn peek_token_with_range(&self, offset: usize) -> Option<&TokenWithRange> {
-        self.upstream.peek(offset)
-    }
-
     fn peek_range(&self, offset: usize) -> Option<&Range> {
         match self.upstream.peek(offset) {
             Some(TokenWithRange { range, .. }) => Some(range),
@@ -98,47 +94,6 @@ impl<'a> Parser<'a> {
             )),
             None => Err(AnreError::UnexpectedEndOfDocument(
                 "Expect an identifier.".to_owned(),
-            )),
-        }
-    }
-
-    /// Consumes the next token and requires it to be the exact identifier.
-    fn consume_identifier_and_assert(&mut self, identifier: &str) -> Result<String, AnreError> {
-        match self.next_token() {
-            Some(Token::Identifier(id)) if id == identifier => Ok(id),
-            Some(_) => Err(AnreError::MessageWithPosition(
-                format!("Expect identifier \"{}\".", identifier),
-                self.last_range.start,
-            )),
-            None => Err(AnreError::UnexpectedEndOfDocument(format!(
-                "Expect identifier \"{}\".",
-                identifier
-            ))),
-        }
-    }
-
-    fn consume_char(&mut self) -> Result<char, AnreError> {
-        match self.next_token() {
-            Some(Token::Char(c)) => Ok(c),
-            Some(_) => Err(AnreError::MessageWithPosition(
-                "Expect a character.".to_owned(),
-                self.last_range.start,
-            )),
-            None => Err(AnreError::UnexpectedEndOfDocument(
-                "Expect a character.".to_owned(),
-            )),
-        }
-    }
-
-    fn consume_string(&mut self) -> Result<String, AnreError> {
-        match self.next_token() {
-            Some(Token::String(s)) => Ok(s),
-            Some(_) => Err(AnreError::MessageWithPosition(
-                "Expect a string.".to_owned(),
-                self.last_range.start,
-            )),
-            None => Err(AnreError::UnexpectedEndOfDocument(
-                "Expect a string.".to_owned(),
             )),
         }
     }

@@ -30,9 +30,11 @@ pub enum Transition {
     CaptureEnd(CaptureEndTransition),
 
     // Counter transitions
-    CounterReset(CounterResetTransition),
-    CounterSave(CounterSaveTransition),
-    CounterInc(CounterIncTransition),
+    // Since the repetition may be nested, we need to use a counter and
+    // a pair of save/load transitions to track the number of repetitions.
+    CounterReset(CounterResetTransition), // Reset the counter to zero
+    CounterSave(CounterSaveTransition),   // Save the current counter value
+    CounterLoadAndInc(CounterLoadAndIncTransition), // Load the counter value and increment it
 
     // Repetition transitions
     RepetitionForward(RepetitionForwardTransition),
@@ -132,7 +134,7 @@ pub struct CounterSaveTransition;
 
 /// Represents a transition that increments the counter.
 #[derive(Debug)]
-pub struct CounterIncTransition;
+pub struct CounterLoadAndIncTransition;
 
 /// Represents a transition that checks the counter and moves forward if the condition is satisfied.
 ///
@@ -376,7 +378,7 @@ impl Display for Transition {
             Transition::CaptureEnd(t) => write!(f, "{}", t),
             Transition::CounterReset(t) => write!(f, "{}", t),
             Transition::CounterSave(t) => write!(f, "{}", t),
-            Transition::CounterInc(t) => write!(f, "{}", t),
+            Transition::CounterLoadAndInc(t) => write!(f, "{}", t),
             Transition::RepetitionForward(t) => write!(f, "{}", t),
             Transition::RepetitionBack(t) => write!(f, "{}", t),
             Transition::LookAheadAssertion(t) => write!(f, "{}", t),
@@ -506,7 +508,7 @@ impl Display for CounterSaveTransition {
     }
 }
 
-impl Display for CounterIncTransition {
+impl Display for CounterLoadAndIncTransition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Counter inc")
     }

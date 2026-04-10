@@ -449,7 +449,7 @@ impl Lexer<'_> {
             }
         }
 
-        let number_range = Range::new(&&self.pop_position_from_stack(), &self.last_position);
+        let number_range = Range::new(&self.pop_position_from_stack(), &self.last_position);
 
         let v = num_buffer.parse::<usize>().map_err(|_| {
             AnreError::MessageWithRange(
