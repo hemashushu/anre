@@ -212,7 +212,7 @@ impl Parser<'_> {
                     break;
                 }
                 _ => {
-                    let expression = self.parse_quantifier()?;
+                    let expression = self.parse_look_ahead_assertion()?;
                     expressions.push(expression);
                 }
             }
@@ -280,13 +280,53 @@ impl Parser<'_> {
         }
     }
 
+    fn parse_look_ahead_assertion(&mut self) -> Result<Expression, AnreError> {
+        // look around assertions:
+        // - `(?=...)`  Positive lookahead
+        // - `(?!...)`  Negative lookahead
+        //
+        // e.g.
+        //
+        // `a(?=b)` = `is_before('a', 'b')`, `'a'.is_before('b')`
+        //
+        // means:
+        //
+        // "match 'a' only if it's followed by 'b'"
+
+        let mut expression = self.parse_quantifier()?;
+
+        if let Some(token @ (Token::LookAheadGroupStart | Token::LookAheadNegativeGroupStart)) =
+            self.peek_token(0)
+        {
+            let name = match token {
+                Token::LookAheadGroupStart => FunctionName::IsBefore,
+                Token::LookAheadNegativeGroupStart => FunctionName::IsNotBefore,
+                _ => unreachable!(),
+            };
+
+            let mut args = vec![];
+
+            self.next_token(); // consume "(?=" or "(?!"
+            let arg0 = self.parse_expression()?;
+            self.consume_closing_parenthese()?; // consume ")"
+
+            args.push(FunctionArgument::Expression(expression));
+            args.push(FunctionArgument::Expression(arg0));
+
+            let function_call = FunctionCall { name, args };
+            expression = Expression::FunctionCall(Box::new(function_call));
+        }
+
+        Ok(expression)
+    }
+
     fn parse_quantifier(&mut self) -> Result<Expression, AnreError> {
         // ```diagram
         // expression [ "?" | "+" | "*" | "{N}" | "{N,}" | "{N,M}" ]
         // expression [ "??" | "+?" | "*?" | "{N,}?" | "{N,M}?" ]
         // ```
 
-        let mut expression = self.parse_look_ahead_assertion()?;
+        let mut expression = self.parse_primary_expression()?;
 
         while let Some(token) = self.peek_token(0) {
             match token {
@@ -383,46 +423,6 @@ impl Parser<'_> {
                     break;
                 }
             }
-        }
-
-        Ok(expression)
-    }
-
-    fn parse_look_ahead_assertion(&mut self) -> Result<Expression, AnreError> {
-        // look around assertions:
-        // - `(?=...)`  Positive lookahead
-        // - `(?!...)`  Negative lookahead
-        //
-        // e.g.
-        //
-        // `a(?=b)` = `is_before('a', 'b')`, `'a'.is_before('b')`
-        //
-        // means:
-        //
-        // "match 'a' only if it's followed by 'b'"
-
-        let mut expression = self.parse_primary_expression()?;
-
-        if let Some(token @ (Token::LookAheadGroupStart | Token::LookAheadNegativeGroupStart)) =
-            self.peek_token(0)
-        {
-            let name = match token {
-                Token::LookAheadGroupStart => FunctionName::IsBefore,
-                Token::LookAheadNegativeGroupStart => FunctionName::IsNotBefore,
-                _ => unreachable!(),
-            };
-
-            let mut args = vec![];
-
-            self.next_token(); // consume "(?=" or "(?!"
-            let arg0 = self.parse_expression()?;
-            self.consume_closing_parenthese()?; // consume ")"
-
-            args.push(FunctionArgument::Expression(expression));
-            args.push(FunctionArgument::Expression(arg0));
-
-            let function_call = FunctionCall { name, args };
-            expression = Expression::FunctionCall(Box::new(function_call));
         }
 
         Ok(expression)
