@@ -12,21 +12,22 @@ pub enum Token {
     CharSetStartNegative, // [^
     CharSetEnd,           // ]
 
-    ZeroOrMore,         // *
-    ZeroOrMoreLazy,     // *?
-    OneOrMore,          // +
-    OneOrMoreLazy,      // +?
-    Optional,           // ?
-    OptionalLazy,       // ??
-    LogicOr,            // `|`
+    Optional,       // ?
+    OneOrMore,      // +
+    ZeroOrMore,     // *
+    LazyOptional,   // ??
+    LazyOneOrMore,  // +?
+    LazyZeroOrMore, // *?
+
+    LogicOr,                    // `|`
     LineBoundaryAssertionStart, // ^
     LineBoundaryAssertionEnd,   // $
-    Dot,                // .
+    Dot,                        // .
 
     Char(char),
     CharRange(/* start */ char, /* end_inclusive */ char), // e.g. a-zA-Z0-9
     PresetCharSet(char),                                   // e.g. \d, \w, \s
-    WordBoundaryAssertion(/* negative */ bool),                // e.g. \b, \B
+    WordBoundaryAssertion(/* negative */ bool),            // e.g. \b, \B
     Repetition(Repetition, /* is_lazy */ bool),            // e.g. {N}, {M,}, {M,N}
 
     GroupStart,                     // (

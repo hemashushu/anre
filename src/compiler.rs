@@ -274,11 +274,12 @@ impl<'a> Compiler<'a> {
             | FunctionName::Repeat
             | FunctionName::RepeatRange
             | FunctionName::RepeatFrom
-            | FunctionName::OptionalLazy
-            | FunctionName::OneOrMoreLazy
-            | FunctionName::ZeroOrMoreLazy
-            | FunctionName::RepeatRangeLazy
-            | FunctionName::RepeatFromLazy => {
+            | FunctionName::LazyOptional
+            | FunctionName::LazyOneOrMore
+            | FunctionName::LazyZeroOrMore
+            | FunctionName::LazyRepeat
+            | FunctionName::LazyRepeatRange
+            | FunctionName::LazyRepeatFrom => {
                 let args = &function_call.args;
                 let FunctionArgument::Expression(expression) = &args[0] else {
                     unreachable!()
@@ -351,29 +352,33 @@ impl<'a> Compiler<'a> {
     ) -> Result<Component, AnreError> {
         let is_lazy = matches!(
             function_name,
-            FunctionName::OptionalLazy
-                | FunctionName::OneOrMoreLazy
-                | FunctionName::ZeroOrMoreLazy
-                | FunctionName::RepeatRangeLazy
-                | FunctionName::RepeatFromLazy
+            FunctionName::LazyOptional
+                | FunctionName::LazyOneOrMore
+                | FunctionName::LazyZeroOrMore
+                | FunctionName::LazyRepeat
+                | FunctionName::LazyRepeatRange
+                | FunctionName::LazyRepeatFrom
         );
 
         match function_name {
             // Quantifiers.
-            FunctionName::Optional | FunctionName::OptionalLazy => {
-                // optional = {0,1}
+            FunctionName::Optional | FunctionName::LazyOptional => {
+                // optional(...) = {0,1}
                 self.emit_optional(expression, is_lazy)
             }
-            FunctionName::OneOrMore | FunctionName::OneOrMoreLazy => {
-                // one_or_more = {1..}
+            FunctionName::OneOrMore | FunctionName::LazyOneOrMore => {
+                // one_or_more(...) = {1..}
                 self.emit_repeat_from(expression, 1, is_lazy)
             }
-            FunctionName::ZeroOrMore | FunctionName::ZeroOrMoreLazy => {
-                // zero_or_more == optional(one_or_more) = {0..}
+            FunctionName::ZeroOrMore | FunctionName::LazyZeroOrMore => {
+                // zero_or_more(...) == optional(one_or_more(...)) = {0..}
                 let component = self.emit_repeat_from(expression, 1, is_lazy)?;
                 self.continue_emit_optional(component, is_lazy)
             }
-            FunctionName::Repeat => {
+            FunctionName::Repeat | FunctionName::LazyRepeat => {
+                // Note that `LazyRepeat` is semantically equivalent to `Repeat`
+                // because the laziness of a fixed repetition has no effect.
+
                 let times = numbers[0];
                 if times == 0 {
                     // {0} = shortcut
@@ -386,7 +391,7 @@ impl<'a> Compiler<'a> {
                     self.emit_repeat(expression, times)
                 }
             }
-            FunctionName::RepeatFrom | FunctionName::RepeatFromLazy => {
+            FunctionName::RepeatFrom | FunctionName::LazyRepeatFrom => {
                 let from = numbers[0];
 
                 if from == 0 {
@@ -398,7 +403,7 @@ impl<'a> Compiler<'a> {
                     self.emit_repeat_from(expression, from, is_lazy)
                 }
             }
-            FunctionName::RepeatRange | FunctionName::RepeatRangeLazy => {
+            FunctionName::RepeatRange | FunctionName::LazyRepeatRange => {
                 let from = numbers[0];
                 let to = numbers[1];
 
@@ -605,7 +610,7 @@ impl<'a> Compiler<'a> {
             i
         } else {
             return Err(AnreError::SyntaxIncorrect(format!(
-            "Cannot find a capture group named \"{}\".",
+                "Cannot find a capture group named \"{}\".",
                 name
             )));
         };
@@ -731,7 +736,8 @@ impl<'a> Compiler<'a> {
         expression: &Expression,
         times: usize,
     ) -> Result<Component, AnreError> {
-        // Requires `times > 1`.
+        // Requires `times >= 2`.
+        assert!(times >= 2);
         self.continue_emit_repetition(expression, RepetitionType::Repeat(times), true)
     }
 
@@ -741,7 +747,8 @@ impl<'a> Compiler<'a> {
         from: usize,
         is_lazy: bool,
     ) -> Result<Component, AnreError> {
-        // Requires `from > 0`.
+        // Requires `from >= 1`.
+        assert!(from >= 1);
         self.continue_emit_repetition(expression, RepetitionType::RepeatFrom(from), is_lazy)
     }
 
@@ -752,7 +759,8 @@ impl<'a> Compiler<'a> {
         to: usize,
         is_lazy: bool,
     ) -> Result<Component, AnreError> {
-        // Requires `from > 0` and `to > from`.
+        // Requires `from >= 1` and `to > from`.
+        assert!(from >= 1 && to > from);
         self.continue_emit_repetition(expression, RepetitionType::RepeatRange(from, to), is_lazy)
     }
 
@@ -1116,7 +1124,7 @@ fn append_preset_charset(
         }
         _ => {
             return Err(AnreError::SyntaxIncorrect(format!(
-            "Cannot append negative preset charset \"{}\" to a charset.",
+                "Cannot append negative preset charset \"{}\" to a charset.",
                 name
             )));
         }

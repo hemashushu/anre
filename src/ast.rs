@@ -131,15 +131,19 @@ pub enum FunctionName {
     OneOrMore,   // `one_or_more(expression)->expression`
     ZeroOrMore,  // `zero_or_more(expression)->expression`
     Repeat,      // `repeat(expression, n)->expression`, n >= 0
-    RepeatRange, // `repeat_range(expression, m, n)->expression`, m >= 0, n >= m (internally, function `repeat` is used if m == n)
     RepeatFrom,  // `repeat_from(expression, n)->expression`, n >= 0
+    RepeatRange, // `repeat_range(expression, m, n)->expression`, m >= 0, n >= m (internally, function `repeat` is used if m == n)
 
     // Lazy Quantifier
-    OptionalLazy,    // `optional_lazy(expression)->expression`
-    OneOrMoreLazy,   // `one_or_more_lazy(expression)->expression`
-    ZeroOrMoreLazy,  // `zero_or_more_lazy(expression)->expression`
-    RepeatRangeLazy, // `repeat_range_lazy(expression, m, n)->expression`, m >= 0, n >= m (error is occurred if m == n)
-    RepeatFromLazy,  // `repeat_from_lazy(expression, n)->expression`, n >= 0
+    LazyOptional,    // `lazy_optional(expression)->expression`
+    LazyOneOrMore,   // `lazy_one_or_more(expression)->expression`
+    LazyZeroOrMore,  // `lazy_zero_or_more(expression)->expression`
+    LazyRepeat,      // `lazy_repeat(expression, n)->expression`, n >= 0
+    LazyRepeatFrom,  // `lazy_repeat_from(expression, n)->expression`, n >= 0
+    LazyRepeatRange, // `lazy_repeat_range(expression, m, n)->expression`, m >= 0, n >= m (error is occurred if m == n)
+
+    // Note that `LazyRepeat` is semantically equivalent to `Repeat`
+    // because the laziness of a fixed repetition has no effect.
 
     // Boundary Assertions (i.e., "判定")
     IsStart,    // `is_start()->()`
@@ -159,7 +163,6 @@ pub enum FunctionName {
     //   impossible for 'a' to follow 'c' and for 'b' to follow 'a' at the same time.
     // - 'c'.is_after('a'.is_before('b'))` always fails because it is
     //   impossible for 'c' to precede 'a' and for 'b' to precede 'c' at the same time.
-
 
     // `is_before(expression, next_expression)->expression`
     // lookahead `A(?=B)`: `is_before(A, B)` or `A.is_before(B)`

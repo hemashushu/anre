@@ -117,8 +117,9 @@ impl Parser<'_> {
 
         if self.peek_token(0).is_some() {
             return Err(AnreError::MessageWithRange(
-                "Only one top-level expression is allowed. Wrap multiple expressions in a group.".to_owned(),
-                *self.peek_range(0).unwrap()
+                "Only one top-level expression is allowed. Wrap multiple expressions in a group."
+                    .to_owned(),
+                *self.peek_range(0).unwrap(),
             ));
         }
 
@@ -323,28 +324,27 @@ impl Parser<'_> {
     fn parse_quantifier(&mut self) -> Result<Expression, AnreError> {
         // ```diagram
         // expression [ "?" | "+" | "*" | "{N}" | "{N,}" | "{N,M}" ]
-        // expression [ "??" | "+?" | "*?" | "{N,}?" | "{N,M}?" ]
+        // expression [ "??" | "+?" | "*?" | "{N}?" | "{N,}?" | "{N,M}?" ]
         // ```
-
         let mut expression = self.parse_primary_expression()?;
 
         while let Some(token) = self.peek_token(0) {
             match token {
                 Token::Optional
-                | Token::OptionalLazy
+                | Token::LazyOptional
                 | Token::OneOrMore
-                | Token::OneOrMoreLazy
+                | Token::LazyOneOrMore
                 | Token::ZeroOrMore
-                | Token::ZeroOrMoreLazy => {
+                | Token::LazyZeroOrMore => {
                     let name = match token {
                         // Greedy quantifier
                         Token::Optional => FunctionName::Optional,
                         Token::OneOrMore => FunctionName::OneOrMore,
                         Token::ZeroOrMore => FunctionName::ZeroOrMore,
                         // Lazy quantifier
-                        Token::OptionalLazy => FunctionName::OptionalLazy,
-                        Token::OneOrMoreLazy => FunctionName::OneOrMoreLazy,
-                        Token::ZeroOrMoreLazy => FunctionName::ZeroOrMoreLazy,
+                        Token::LazyOptional => FunctionName::LazyOptional,
+                        Token::LazyOneOrMore => FunctionName::LazyOneOrMore,
+                        Token::LazyZeroOrMore => FunctionName::LazyZeroOrMore,
                         _ => unreachable!(),
                     };
 
@@ -362,24 +362,19 @@ impl Parser<'_> {
 
                     let name = match repetition {
                         Repetition::Repeat(n) => {
-                            if *lazy {
-                                return Err(AnreError::MessageWithRange(
-                                    format!(
-                                        "Fixed repetition does not support lazy mode: \"{{{}}}?\".",
-                                        n
-                                    ),
-                                    self.last_range,
-                                ));
-                            }
-
                             args.push(FunctionArgument::Number(*n));
-                            FunctionName::Repeat
+
+                            if *lazy {
+                                FunctionName::LazyRepeat
+                            } else {
+                                FunctionName::Repeat
+                            }
                         }
                         Repetition::RepeatFrom(n) => {
                             args.push(FunctionArgument::Number(*n));
 
                             if *lazy {
-                                FunctionName::RepeatFromLazy
+                                FunctionName::LazyRepeatFrom
                             } else {
                                 FunctionName::RepeatFrom
                             }
@@ -388,24 +383,19 @@ impl Parser<'_> {
                             // `{m..m}` is equivalent to a fixed repetition, so it reuses
                             // the same AST form as `{m}`.
                             if m == n {
-                                if *lazy {
-                                    return Err(AnreError::MessageWithRange(
-                                        format!(
-                                            "Fixed repetition does not support lazy mode: \"{{{},{}}}?\".",
-                                            m, n
-                                        ),
-                                        self.last_range,
-                                    ));
-                                }
-
                                 args.push(FunctionArgument::Number(*n));
-                                FunctionName::Repeat
+
+                                if *lazy {
+                                    FunctionName::LazyRepeat
+                                } else {
+                                    FunctionName::Repeat
+                                }
                             } else {
                                 args.push(FunctionArgument::Number(*m));
                                 args.push(FunctionArgument::Number(*n));
 
                                 if *lazy {
-                                    FunctionName::RepeatRangeLazy
+                                    FunctionName::LazyRepeatRange
                                 } else {
                                     FunctionName::RepeatRange
                                 }
@@ -660,11 +650,8 @@ impl TryFrom<char> for PresetCharSetName {
 mod tests {
     use pretty_assertions::assert_eq;
 
-    use crate::{
-        ast::{
-            CharRange, CharSet, CharSetElement, Expression, Literal, PresetCharSetName, Program,
-        },
-        error::AnreError,
+    use crate::ast::{
+        CharRange, CharSet, CharSetElement, Expression, Literal, PresetCharSetName, Program,
     };
 
     use super::parse_from_str;
@@ -765,27 +752,20 @@ mod tests {
     fn test_parse_quantifier() {
         assert_eq!(
             parse_from_str(r#"a?b+c*x??y+?z*?"#,).unwrap().to_string(),
-            r#"(optional('a'), one_or_more('b'), zero_or_more('c'), optional_lazy('x'), one_or_more_lazy('y'), zero_or_more_lazy('z'))"#
+            r#"(optional('a'), one_or_more('b'), zero_or_more('c'), lazy_optional('x'), lazy_one_or_more('y'), lazy_zero_or_more('z'))"#
         );
 
         assert_eq!(
-            parse_from_str(r#"a{3}b{5,7}c{11,}y{5,7}?z{11,}?"#,)
+            parse_from_str(r#"a{3}b{5,7}c{11,}x{3}?y{5,7}?z{11,}?"#,)
                 .unwrap()
                 .to_string(),
-            r#"(repeat('a', 3), repeat_range('b', 5, 7), repeat_from('c', 11), repeat_range_lazy('y', 5, 7), repeat_from_lazy('z', 11))"#
+            r#"(repeat('a', 3), repeat_range('b', 5, 7), repeat_from('c', 11), lazy_repeat('x', 3), lazy_repeat_range('y', 5, 7), lazy_repeat_from('z', 11))"#
         );
 
-        // Error: '{m}?' is not allowed
-        assert!(matches!(
-            parse_from_str(r#"a{3}?"#,),
-            Err(AnreError::MessageWithRange(_, _))
-        ));
-
-        // Error: '{m,m}?' is not allowed
-        assert!(matches!(
-            parse_from_str(r#"a{3,3}?"#,),
-            Err(AnreError::MessageWithRange(_, _))
-        ));
+        assert_eq!(
+            parse_from_str(r#"a{3,3}x{3,3}?"#,).unwrap().to_string(),
+            r#"(repeat('a', 3), lazy_repeat('x', 3))"#
+        );
     }
 
     #[test]
@@ -1003,7 +983,7 @@ is_end())"
 one_or_more(char_word) as tag_name, \
 zero_or_more(#(char_space, one_or_more(char_word), optional(#(\"=\\\"\", one_or_more(char_word), '\\\"')))), \
 '>', \
-one_or_more_lazy(char_any), \
+lazy_one_or_more(char_any), \
 \"</\", tag_name, '>'\
 )"
         );

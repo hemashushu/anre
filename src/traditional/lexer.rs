@@ -361,7 +361,7 @@ impl Lexer<'_> {
                     self.next_char(); // consume '?'
 
                     token_with_ranges.push(TokenWithRange::new(
-                        Token::OptionalLazy,
+                        Token::LazyOptional,
                         Range::new(&self.pop_position_from_stack(), &self.last_position),
                     ));
                 }
@@ -382,7 +382,7 @@ impl Lexer<'_> {
                     self.next_char(); // consume '?'
 
                     token_with_ranges.push(TokenWithRange::new(
-                        Token::OneOrMoreLazy,
+                        Token::LazyOneOrMore,
                         Range::new(&self.pop_position_from_stack(), &self.last_position),
                     ));
                 }
@@ -403,7 +403,7 @@ impl Lexer<'_> {
                     self.next_char(); // consume '?'
 
                     token_with_ranges.push(TokenWithRange::new(
-                        Token::ZeroOrMoreLazy,
+                        Token::LazyZeroOrMore,
                         Range::new(&self.pop_position_from_stack(), &self.last_position),
                     ));
                 }
@@ -1627,15 +1627,15 @@ mod tests {
                 Token::Char('a'),
                 Token::Optional,
                 Token::Char('b'),
-                Token::OptionalLazy,
+                Token::LazyOptional,
                 Token::Char('c'),
                 Token::OneOrMore,
                 Token::Char('d'),
-                Token::OneOrMoreLazy,
+                Token::LazyOneOrMore,
                 Token::Char('e'),
                 Token::ZeroOrMore,
                 Token::Char('f'),
-                Token::ZeroOrMoreLazy,
+                Token::LazyZeroOrMore,
             ]
         );
 
@@ -1646,7 +1646,7 @@ mod tests {
                 TokenWithRange::new(Token::Char('a'), Range::from_detail(0, 0, 0, 1)),
                 TokenWithRange::new(Token::OneOrMore, Range::from_detail(1, 0, 1, 1)),
                 TokenWithRange::new(Token::Char('b'), Range::from_detail(2, 0, 2, 1)),
-                TokenWithRange::new(Token::OneOrMoreLazy, Range::from_detail(3, 0, 3, 2)),
+                TokenWithRange::new(Token::LazyOneOrMore, Range::from_detail(3, 0, 3, 2)),
             ]
         );
     }

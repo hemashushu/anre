@@ -45,11 +45,12 @@ pub fn calculate_match_length(exp: &Expression) -> MatchLength {
             }
             FunctionName::RepeatRange => MatchLength::Variable,
             FunctionName::RepeatFrom => MatchLength::Variable,
-            FunctionName::OptionalLazy => MatchLength::Variable,
-            FunctionName::OneOrMoreLazy => MatchLength::Variable,
-            FunctionName::ZeroOrMoreLazy => MatchLength::Variable,
-            FunctionName::RepeatRangeLazy => MatchLength::Variable,
-            FunctionName::RepeatFromLazy => MatchLength::Variable,
+            FunctionName::LazyOptional => MatchLength::Variable,
+            FunctionName::LazyOneOrMore => MatchLength::Variable,
+            FunctionName::LazyZeroOrMore => MatchLength::Variable,
+            FunctionName::LazyRepeat => MatchLength::Variable,
+            FunctionName::LazyRepeatRange => MatchLength::Variable,
+            FunctionName::LazyRepeatFrom => MatchLength::Variable,
             FunctionName::IsBefore => {
                 let FunctionArgument::Expression(base_exp) = &function_call.args[0] else {
                     unreachable!()

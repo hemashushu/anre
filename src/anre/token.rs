@@ -28,22 +28,22 @@ pub enum Token {
     String(String),
 
     // Greedy zero-or-one quantifier postfix `?`.
-    Question,
-
-    // Lazy zero-or-one quantifier postfix `??`.
-    QuestionLazy,
+    Optional,
 
     // Greedy one-or-more quantifier postfix `+`.
-    Plus,
-
-    // Lazy one-or-more quantifier postfix `+?`.
-    PlusLazy,
+    OneOrMore,
 
     // Greedy zero-or-more quantifier postfix `*`.
-    Asterisk,
+    ZeroOrMore,
+
+    // Lazy zero-or-one quantifier postfix `??`.
+    LazyOptional,
+
+    // Lazy one-or-more quantifier postfix `+?`.
+    LazyOneOrMore,
 
     // Lazy zero-or-more quantifier postfix `*?`.
-    AsteriskLazy,
+    LazyZeroOrMore,
 
     // Opens a repetition specifier such as `{3}`, `{3..}`, or `{3..5}`.
     BraceOpen,
@@ -52,7 +52,7 @@ pub enum Token {
     BraceClose,
 
     // Negates a character set when it appears immediately before `[`, as in `![...]`.
-    Exclamation,
+    Not,
 
     // Shared `..` operator used in char ranges and repetition ranges.
     Range,

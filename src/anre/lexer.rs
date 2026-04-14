@@ -153,7 +153,7 @@ impl Lexer<'_> {
                     self.next_char(); // consume '!'
 
                     token_with_ranges.push(TokenWithRange::new(
-                        Token::Exclamation,
+                        Token::Not,
                         Range::from_single_position(&self.last_position),
                     ));
                 }
@@ -231,7 +231,7 @@ impl Lexer<'_> {
                     self.next_char(); // consume '?'
 
                     token_with_ranges.push(TokenWithRange::new(
-                        Token::QuestionLazy,
+                        Token::LazyOptional,
                         Range::new(&self.pop_position_from_stack(), &self.last_position),
                     ));
                 }
@@ -239,7 +239,7 @@ impl Lexer<'_> {
                     self.next_char(); // consume '?'
 
                     token_with_ranges.push(TokenWithRange::new(
-                        Token::Question,
+                        Token::Optional,
                         Range::from_single_position(&self.last_position),
                     ));
                 }
@@ -250,7 +250,7 @@ impl Lexer<'_> {
                     self.next_char(); // consume '?'
 
                     token_with_ranges.push(TokenWithRange::new(
-                        Token::PlusLazy,
+                        Token::LazyOneOrMore,
                         Range::new(&self.pop_position_from_stack(), &self.last_position),
                     ));
                 }
@@ -258,7 +258,7 @@ impl Lexer<'_> {
                     self.next_char(); // consume '+'
 
                     token_with_ranges.push(TokenWithRange::new(
-                        Token::Plus,
+                        Token::OneOrMore,
                         Range::from_single_position(&self.last_position),
                     ));
                 }
@@ -269,7 +269,7 @@ impl Lexer<'_> {
                     self.next_char(); // consume '?'
 
                     token_with_ranges.push(TokenWithRange::new(
-                        Token::AsteriskLazy,
+                        Token::LazyZeroOrMore,
                         Range::new(&self.pop_position_from_stack(), &self.last_position),
                     ));
                 }
@@ -277,7 +277,7 @@ impl Lexer<'_> {
                     self.next_char(); // consume '*'
 
                     token_with_ranges.push(TokenWithRange::new(
-                        Token::Asterisk,
+                        Token::ZeroOrMore,
                         Range::from_single_position(&self.last_position),
                     ));
                 }
@@ -971,7 +971,7 @@ mod tests {
         assert_eq!(
             lex_from_str_without_location("!...#^||[]()???++?**?{}").unwrap(),
             vec![
-                Token::Exclamation,
+                Token::Not,
                 Token::Range,
                 Token::Dot,
                 Token::Hash,
@@ -981,12 +981,12 @@ mod tests {
                 Token::BracketClose,
                 Token::ParenthesisOpen,
                 Token::ParenthesisClose,
-                Token::QuestionLazy,
-                Token::Question,
-                Token::Plus,
-                Token::PlusLazy,
-                Token::Asterisk,
-                Token::AsteriskLazy,
+                Token::LazyOptional,
+                Token::Optional,
+                Token::OneOrMore,
+                Token::LazyOneOrMore,
+                Token::ZeroOrMore,
+                Token::LazyZeroOrMore,
                 Token::BraceOpen,
                 Token::BraceClose
             ]
@@ -2044,11 +2044,11 @@ mod tests {
             .unwrap(),
             vec![
                 Token::Char('a'),
-                Token::Question,
+                Token::Optional,
                 Token::Char('b'),
-                Token::Plus,
+                Token::OneOrMore,
                 Token::Char('c'),
-                Token::Asterisk,
+                Token::ZeroOrMore,
                 Token::Char('d'),
                 Token::BraceOpen,
                 Token::Number(1),

@@ -284,7 +284,7 @@ mod tests {
                 Token::ParenthesisOpen,  // MACRO_A
                 Token::Char('a'),        // MACRO_A
                 Token::ParenthesisClose, // MACRO_A
-                Token::Plus,
+                Token::OneOrMore,
                 Token::ParenthesisClose,
                 //
                 Token::ParenthesisClose
