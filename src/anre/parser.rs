@@ -1385,7 +1385,9 @@ define D (A || B || 'd')
                 r#"
 /**
  * Decimal Numbers Regular Expression
- * For example:
+ *
+ * Examples:
+ *
  * - "0"
  * - "123"
  */
@@ -1403,7 +1405,9 @@ char_digit.one_or_more()
                 r#"
 /**
  * Hex Numbers Regular Expression
- * For example:
+ *
+ * Examples:
+ *
  * - "0x0"
  * - "0x123"
  * - "0xabc"
@@ -1428,9 +1432,10 @@ char_digit.one_or_more()
             parse_from_str(
                 r#"
 /**
- * Email Address Validated Regular Expression
+ * Email Address Validation Regular Expression
  *
- * For example:
+ * Examples:
+ *
  * - "abc@example.domain"
  * - "john-smith.new+mailbox-department@example.com"
  *
@@ -1479,7 +1484,7 @@ is_end())"
         let ipv4_regex = parse_from_str(
             r#"
 /**
- * IPv4 Address Validated Regular Expression
+ * IPv4 Address Validation Regular Expression
  */
 
 define num_25x ("25", ['0'..'5'])
@@ -1507,16 +1512,20 @@ define part (num_25x || num_2xx || num_1xx || num_xx || num_x)
             parse_from_str(
                 r#"
 /**
- * Simple HTML tag Regular Expression
+ * Simple HTML Tag Regular Expression
  */
 
 (
-    '<'                                                                 // opening tag
-    char_word+ as tag_name                                              // tag name
-    (char_space, char_word+, ('=', '"', char_word+, '"').optional())*   // attributes
+    '<'                                         // opening tag
+    char_word+ as tag_name                      // tag name
+    (                                           // attributes
+        char_space,
+        char_word+,                             // key
+        ('=', '"', char_word+, '"').optional()  // value
+    )*
     '>'
-    char_any+?                                                          // text content
-    '<', '/', tag_name, '>'                                             // closing tag
+    char_any+?                                  // text content
+    '<', '/', tag_name, '>'                     // closing tag
 )
 "#,
             )

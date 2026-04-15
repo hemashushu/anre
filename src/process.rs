@@ -424,9 +424,13 @@ fn is_word_bound(bytes: &[u8], position: usize) -> bool {
         let (current_char, _) = get_char(bytes, position);
         is_word_char(current_char)
     } else if position >= bytes.len() {
+        // Because the "mactching" operation moves forward one character,
+        // so only the previous character is needed to be checked.
         let (previous_char, _) = get_char(bytes, position - 1);
         is_word_char(previous_char)
     } else {
+        // Because the "mactching" operation moves forward one character,
+        // so only the previous character is needed to be checked.
         let (current_char, _) = get_char(bytes, position);
         let (previous_char, _) = get_char(bytes, position - 1);
 

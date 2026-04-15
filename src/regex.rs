@@ -956,6 +956,95 @@ mod tests {
 
             assert_eq!(matches.next(), None);
         }
+
+        // matching 'boundary + char + boundary'
+        for re in build(
+            r#"(is_bound(), 'a', is_bound())"#, // ANRE
+            r#"\ba\b"#,                         // traditional
+        ) {
+            let text = "a";
+            let mut matches = re.find_iter(text);
+            assert_eq!(matches.next(), Some(new_match(0, 1, "a")));
+            assert_eq!(matches.next(), None);
+        }
+
+        for re in build(
+            r#"(is_bound(), 'a', is_bound())"#, // ANRE
+            r#"\ba\b"#,                         // traditional
+        ) {
+            let text = " a ";
+            let mut matches = re.find_iter(text);
+            assert_eq!(matches.next(), Some(new_match(1, 2, "a")));
+            assert_eq!(matches.next(), None);
+        }
+
+        for re in build(
+            r#"(is_bound(), 'a', is_bound())"#, // ANRE
+            r#"\ba\b"#,                         // traditional
+        ) {
+            let text = "a ";
+            let mut matches = re.find_iter(text);
+            assert_eq!(matches.next(), Some(new_match(0, 1, "a")));
+            assert_eq!(matches.next(), None);
+        }
+
+        for re in build(
+            r#"(is_bound(), 'a', is_bound())"#, // ANRE
+            r#"\ba\b"#,                         // traditional
+        ) {
+            let text = " a";
+            let mut matches = re.find_iter(text);
+            assert_eq!(matches.next(), Some(new_match(1, 2, "a")));
+            assert_eq!(matches.next(), None);
+        }
+
+        for re in build(
+            r#"(is_bound(), 'a', is_bound())"#, // ANRE
+            r#"\ba\b"#,                         // traditional
+        ) {
+            let text = "ab";
+            let mut matches = re.find_iter(text);
+            assert_eq!(matches.next(), None);
+        }
+
+        for re in build(
+            r#"(is_bound(), 'a', is_bound())"#, // ANRE
+            r#"\ba\b"#,                         // traditional
+        ) {
+            let text = "ba";
+            let mut matches = re.find_iter(text);
+            assert_eq!(matches.next(), None);
+        }
+
+        for re in build(
+            r#"(is_bound(), 'a', is_bound())"#, // ANRE
+            r#"\ba\b"#,                         // traditional
+        ) {
+            let text = "bab";
+            let mut matches = re.find_iter(text);
+            assert_eq!(matches.next(), None);
+        }
+
+        // matching 'char + boundary + char'
+        for re in build(
+            r#"('a', is_bound(), ' ' , is_bound(), 'b')"#, // ANRE
+            r#"a\b \bb"#,                                  // traditional
+        ) {
+            let text = "a b";
+            let mut matches = re.find_iter(text);
+            assert_eq!(matches.next(), Some(new_match(0, 3, "a b")));
+            assert_eq!(matches.next(), None);
+        }
+
+        for re in build(
+            r#"('a', is_bound(), ' ' , is_bound(), 'b')"#, // ANRE
+            r#"a\b \bb"#,                                  // traditional
+        ) {
+            let text = "xa by";
+            let mut matches = re.find_iter(text);
+            assert_eq!(matches.next(), Some(new_match(1, 4, "a b")));
+            assert_eq!(matches.next(), None);
+        }
     }
 
     #[test]
