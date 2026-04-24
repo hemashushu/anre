@@ -35,7 +35,7 @@ Regex-anre provides the same API as the [Rust standard regular expression librar
     - [4.1.2 Strings](#412-strings)
     - [4.1.3 Character Sets](#413-character-sets)
   - [4.2 Functions](#42-functions)
-    - [4.2.1 Nested Invocations](#421-nested-invocations)
+    - [4.2.1 Invocations](#421-invocations)
     - [4.2.2 Method-like Invocation](#422-method-like-invocation)
   - [4.3 Repetition](#43-repetition)
   - [4.4 Boundary Assertions](#44-boundary-assertions)
@@ -444,13 +444,17 @@ For example:
 
 This is a function with name `repeat` that takes an expression (a character literal 'a') and a number 3 as parameters, this function represents exactly three occurrences of 'a', it is equivalent to the regex `a{3}`.
 
-Function invocation syntax:
+Typical function signature:
 
 `function_name(expression, args...) -> expression`
 
 Not all functions have parameters and return values, for example, `is_start()` is a function that takes no parameters and returns `void` that represents the start of the string, it is equivalent to the regex `^`.
 
-#### 4.2.1 Nested Invocations
+#### 4.2.1 Invocations
+
+Function invocation syntax:
+
+`function_name(expression, args...)`
 
 If a function returns an expression, and another function takes an expression as a parameter, we can nest the function invocations together to create more complex expressions.
 
@@ -539,6 +543,10 @@ Where "word boundary" means the position between a word character and a non-word
 | 4        | ' '            | 'c'             | Yes               |
 | 5        | 'c'            | 'd'             | No                |
 | 6        | 'd'            | None            | Yes               |
+
+In programming, the "position" is often represented by an "index", which is the number of characters from the start of the string. You can replace the "position" column with "index" column in the above table, and replace the "Left Character" and "Right Character" columns with "Previous Character" and "Current Character" columns, this may be more intuitive to understand the concept of word boundary.
+
+In short, the function `is_bound()` only returns true when the current character is a word character (`\w`) and the previous character is a non-word character, or vice versa.
 
 What is "assertion"?
 
