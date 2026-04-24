@@ -9,9 +9,9 @@ use std::ops::{Index, Range};
 use crate::{
     compiler::{compile_from_anre, compile_from_regex},
     error::AnreError,
-    object_file::Map,
+    object::Map,
     process::start_process,
-    runtime_context::Context,
+    context::Context,
 };
 
 pub struct Regex {
@@ -38,7 +38,7 @@ impl Regex {
             return None;
         }
 
-        let match_range = &context.match_range_slots[0];
+        let match_range = &context.matched_slots[0];
         let match_ = Match::new(
             match_range.start,
             match_range.end,
@@ -67,7 +67,7 @@ impl Regex {
         }
 
         let matches: Vec<Match> = context
-            .match_range_slots
+            .matched_slots
             .iter()
             .enumerate()
             .map(|(idx, match_range)| {
@@ -125,7 +125,7 @@ impl<'a, 'b> Iterator for CaptureMatches<'a, 'b> {
 
         let matches: Vec<Match> = self
             .context
-            .match_range_slots
+            .matched_slots
             .iter()
             .enumerate()
             .map(|(idx, match_range)| {
@@ -168,7 +168,7 @@ impl<'a, 'b> Iterator for Matches<'a, 'b> {
             return None;
         }
 
-        let match_range = &self.context.match_range_slots[0];
+        let match_range = &self.context.matched_slots[0];
         let match_ = Match::new(
             match_range.start,
             match_range.end,

@@ -18,8 +18,8 @@ mod transition;
 mod match_length_calculator;
 
 pub mod utf8_codepoint_reader;
-pub mod runtime_context;
-pub mod object_file;
+pub mod context;
+pub mod object;
 pub mod process;
 pub mod regex;
 

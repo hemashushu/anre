@@ -781,7 +781,6 @@ impl Lexer<'_> {
         // ^^     ^__// to here ('?' = any char or EOF)
         // ||________// validated
         // |_________// current char, validated
-        //
         // ```
 
         // note that the trailing '\n' or '\r\n' does not belong to line comment

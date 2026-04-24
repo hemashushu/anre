@@ -5,8 +5,8 @@
 // For more details, see the LICENSE, LICENSE.additional, and CONTRIBUTING files.
 
 use crate::{
-    object_file::{MAIN_ROUTE_INDEX, Map},
-    runtime_context::{Context, MatchRange, Routine},
+    object::{MAIN_ROUTE_INDEX, Map},
+    context::{Context, MatchRange, Routine},
     transition::{CharSetItem, RepetitionType, Transition},
     utf8_codepoint_reader::{next_codepoint, previous_codepoint},
 };
@@ -39,7 +39,7 @@ pub fn start_routine(
     end_position: usize,   // End position (exclusive, in bytes) of the searching text range.
 ) -> bool {
     let mut result = false;
-    let mut position = start_position;
+    let mut cursor = start_position;
 
     // Add a routine for the route to the context.
     let routine = Routine::new(start_position, end_position, route_index);
@@ -47,20 +47,20 @@ pub fn start_routine(
 
     // Continue moving the start position forward and retry matching
     // until a match is successful or the end of the searching range is reached.
-    while position < end_position {
-        if execute_transitions(context, map, position) {
+    while cursor < end_position {
+        if execute_transitions(context, map, cursor) {
             result = true;
             break;
         }
 
         // If the expression starts with "^...", there is no need to try remaining characters.
-        if map.routes[route_index].is_fixed_matching_begin_point {
+        if map.routes[route_index].is_fixed_cursor_begin_position {
             break;
         }
 
         // Move forward by one character and try again.
-        let (_, byte_length) = next_codepoint(context.bytes, position);
-        position += byte_length;
+        let (_, byte_length) = next_codepoint(context.bytes, cursor);
+        cursor += byte_length;
     }
 
     // Remove the routine for the route from the context.
@@ -70,7 +70,7 @@ pub fn start_routine(
 
 /// Execute transitions for a route starting from a specified position.
 /// Returns `true` if all transitions succeed, otherwise `false`.
-fn execute_transitions(context: &mut Context, map: &Map, position: usize) -> bool {
+fn execute_transitions(context: &mut Context, map: &Map, cursor: usize) -> bool {
     let (route_index, entry_node_index, exit_node_index) = {
         let routine = context.get_current_routine_ref();
         let route_index = routine.route_index;
@@ -79,7 +79,7 @@ fn execute_transitions(context: &mut Context, map: &Map, position: usize) -> boo
     };
 
     // Add transitions of the entry node.
-    context.push_transitions_of_node(map, entry_node_index, position, 0);
+    context.push_transitions_of_node(map, entry_node_index, cursor, 0);
 
     // Transitions are similar to functions in programming languages.
     // `transition_stack` is similar to a call stack.
@@ -99,12 +99,12 @@ fn execute_transitions(context: &mut Context, map: &Map, position: usize) -> boo
         let node = &route.nodes[frame.current_node_index];
         let transition_item = &node.path[frame.transition_index];
 
-        let position = frame.position;
+        let cursor = frame.cursor;
         let last_repetition_count = frame.repetition_count;
         let transition = &transition_item.transition;
         let target_node_index = transition_item.target_node_index;
 
-        let execute_result = transition.execute(context, map, position, last_repetition_count);
+        let execute_result = transition.execute(context, map, cursor, last_repetition_count);
 
         match execute_result {
             ExecuteResult::Success(move_forward_in_bytes, current_repetition_count) => {
@@ -117,7 +117,7 @@ fn execute_transitions(context: &mut Context, map: &Map, position: usize) -> boo
                 context.push_transitions_of_node(
                     map,
                     target_node_index,
-                    position + move_forward_in_bytes,
+                    cursor + move_forward_in_bytes,
                     current_repetition_count,
                 );
             }
@@ -139,7 +139,7 @@ impl Transition {
 
         // the current position.
         // position is a cursor in the source text.
-        position: usize,
+        cursor: usize,
 
         // the current repetition number.
         //
@@ -159,10 +159,10 @@ impl Transition {
             Transition::Char(transition) => {
                 let routine = context.get_current_routine_ref();
 
-                if position >= routine.end_position {
+                if cursor >= routine.range_end {
                     ExecuteResult::Failure
                 } else {
-                    let (cp, _) = next_codepoint(context.bytes, position);
+                    let (cp, _) = next_codepoint(context.bytes, cursor);
                     if cp == transition.codepoint {
                         ExecuteResult::Success(transition.byte_length, 0)
                     } else {
@@ -173,10 +173,10 @@ impl Transition {
             Transition::AnyChar(_) => {
                 let routine = context.get_current_routine_ref();
 
-                if position >= routine.end_position {
+                if cursor >= routine.range_end {
                     ExecuteResult::Failure
                 } else {
-                    let (current_char, byte_length) = get_char(context.bytes, position);
+                    let (current_char, byte_length) = get_char(context.bytes, cursor);
 
                     // "char_any" does not include new-line characters.
                     // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Character_classes
@@ -190,11 +190,11 @@ impl Transition {
             Transition::String(transition) => {
                 let routine = context.get_current_routine_ref();
 
-                if position + transition.byte_length > routine.end_position {
+                if cursor + transition.byte_length > routine.range_end {
                     ExecuteResult::Failure
                 } else {
                     let mut all_code_point_matched = true;
-                    let mut current_position: usize = position;
+                    let mut current_position: usize = cursor;
 
                     for expected_codepoint in &transition.codepoints {
                         let (actual_code_point, length) =
@@ -216,11 +216,11 @@ impl Transition {
             Transition::CharSet(transition) => {
                 let routine = context.get_current_routine_ref();
 
-                if position >= routine.end_position {
+                if cursor >= routine.range_end {
                     return ExecuteResult::Failure;
                 }
 
-                let (current_char, byte_length) = get_char(context.bytes, position);
+                let (current_char, byte_length) = get_char(context.bytes, cursor);
                 let mut found_any: bool = false;
 
                 for item in &transition.items {
@@ -244,20 +244,20 @@ impl Transition {
             }
             Transition::BackReference(transition) => {
                 let MatchRange { start, end } =
-                    &context.match_range_slots[transition.capture_group_index];
+                    &context.matched_slots[transition.capture_group_index];
 
                 let bytes = &context.bytes[*start..*end];
                 let length_in_byte = end - start;
 
                 let routine = context.get_current_routine_ref();
 
-                if position + length_in_byte >= routine.end_position {
+                if cursor + length_in_byte >= routine.range_end {
                     ExecuteResult::Failure
                 } else {
                     let mut all_byte_matched = true;
 
                     for (idx, actual_byte) in bytes.iter().enumerate() {
-                        if actual_byte != &context.bytes[idx + position] {
+                        if actual_byte != &context.bytes[idx + cursor] {
                             all_byte_matched = false;
                             break;
                         }
@@ -273,9 +273,9 @@ impl Transition {
             Transition::LineBoundaryAssertion(transition) => {
                 let bytes = context.bytes;
                 let success = if transition.is_end {
-                    is_end(bytes, position)
+                    is_end(bytes, cursor)
                 } else {
-                    is_first_char(position)
+                    is_first_char(cursor)
                 };
 
                 if success {
@@ -287,9 +287,9 @@ impl Transition {
             Transition::WordBoundaryAssertion(transition) => {
                 let bytes = context.bytes;
                 let success = if transition.is_negative {
-                    !is_word_bound(bytes, position)
+                    !is_word_bound(bytes, cursor)
                 } else {
-                    is_word_bound(bytes, position)
+                    is_word_bound(bytes, cursor)
                 };
 
                 if success {
@@ -299,11 +299,11 @@ impl Transition {
                 }
             }
             Transition::CaptureStart(transition) => {
-                context.match_range_slots[transition.capture_group_index].start = position;
+                context.matched_slots[transition.capture_group_index].start = cursor;
                 ExecuteResult::Success(0, 0)
             }
             Transition::CaptureEnd(transition) => {
-                context.match_range_slots[transition.capture_group_index].end = position;
+                context.matched_slots[transition.capture_group_index].end = cursor;
                 ExecuteResult::Success(0, 0)
             }
             Transition::CounterReset(_) => ExecuteResult::Success(0, 0),
@@ -344,7 +344,7 @@ impl Transition {
             Transition::LookAheadAssertion(transition) => {
                 let route_index = transition.route_index;
                 let routine_result =
-                    start_routine(context, map, route_index, position, context.bytes.len());
+                    start_routine(context, map, route_index, cursor, context.bytes.len());
 
                 let result = routine_result ^ transition.is_negative;
                 if result {
@@ -359,7 +359,7 @@ impl Transition {
                 let route_index = transition.route_index;
                 let routine_result = if let Ok(start) = get_position_by_chars_backward(
                     context.bytes,
-                    position,
+                    cursor,
                     transition.match_length_in_char,
                 ) {
                     // the child thread should start at position `current_position - backward_count_in_bytes`.

@@ -11,7 +11,7 @@ use crate::{
     },
     error::AnreError,
     match_length_calculator::{MatchLength, calculate_match_length},
-    object_file::{Component, Map, Route},
+    object::{Component, Map, Route},
     transition::{
         AnyCharTransition, BackReferenceTransition, CaptureEndTransition, CaptureStartTransition,
         CharSetItem, CharSetTransition, CharTransition, CounterLoadAndIncTransition,
@@ -124,13 +124,13 @@ impl<'a> Compiler<'a> {
             Transition::CaptureEnd(capture_end_transition),
         );
 
-        let is_fixed_matching_begin_point =
+        let is_fixed_cursor_begin_position =
             check_first_expression_is_start_assertion(&program.expression);
 
         // Update the program entry and exit ports.
         route.entry_node_index = in_node_index;
         route.exit_node_index = out_node_index;
-        route.is_fixed_matching_begin_point = is_fixed_matching_begin_point;
+        route.is_fixed_cursor_begin_position = is_fixed_cursor_begin_position;
 
         Ok(())
     }
@@ -156,14 +156,16 @@ impl<'a> Compiler<'a> {
         // Group component:
         //
         // ```diagram
-        //   /-----------------------------------------------\
-        //   |                                               |
-        //   |    component        jump         component    |
-        //   |  /-----------\   transition    /-----------\  |
-        // =====o in    out o==-------------==o in    out o=====
-        //   |  \-----------/                 \-----------/  |
-        //   |                                               |
-        //   \--------------- group component ---------------/
+        //   /-------------------------------------------------------------\
+        //   |                    jump                  other components   |
+        //   |                  | transition          | and transitions    |
+        //   |                  |                     |                    |
+        //   |  /-----------\   |     /-----------\   |     /-----------\  |
+        // =====o in    out o==-----==o in    out o==.....==o in    out o=====
+        //   |  \-----------/         \-----------/         \-----------/  |
+        //   |    component             component             component    |
+        //   |                                                             |
+        //   \----------------------- group component ---------------------/
         // ```
         //
         // The "group" in ANRE is different from the "group" in traditional regular expressions.
@@ -209,10 +211,9 @@ impl<'a> Compiler<'a> {
         left: &Expression,
         right: &Expression,
     ) -> Result<Component, AnreError> {
-        // Logic OR component:
+        // Alternative branch component:
         //
         // ```diagram
-        //
         //   /-------------------------------------------------------\
         //   |                                                       |
         //   |            jump         left          jump            |
@@ -228,7 +229,7 @@ impl<'a> Compiler<'a> {
         //   |            jump |      right        | jump            |
         //   |      transition |    component      | transition      |
         //   |                                                       |
-        //   \------------------- logic or component ----------------/
+        //   \------------ alternative branch component -------------/
         // ```
 
         let left_component = self.emit_expression(left)?;
@@ -816,44 +817,44 @@ impl<'a> Compiler<'a> {
         // a pair of save/load transitions to track the number of repetitions.
         //
         // ```diagram
-        //    /-------------------------------------------------------------------------\
-        //    |                                                                         |
-        //    |                      repetition back transition                         |
-        //    |              /--------------------------------------------\             |
-        //    |              |                                            |             |
-        //    |              |     | counter             | counter        |             |
-        //    |              |     | save                | load & inc     |             |
-        //    |              |     | transition          | transition     |             |
-        //    |  in          |     |                     |                |             |
-        //    |  node        v     v     /-----------\   v  right node    |       out   |
-        //  =====o==-------==o==-------==o in    out o==------==o|o==-----/       node  |
-        //    |          ^   left        \-----------/           |o==--------------==o=====
-        //    |  counter |   node       inner component                   ^             |
-        //    |  reset   |                                                | repetition  |
-        //    |  transition                                               | forward     |
-        //    |                                                           | transition  |
-        //    |                                                                         |
-        //    \--------------------- lazy repetition component -------------------------/
+        //   /-------------------------------------------------------------------------\
+        //   |                                                                         |
+        //   |                      repetition back transition                         |
+        //   |              /--------------------------------------------\             |
+        //   |              |                                            |             |
+        //   |              |     | counter             | counter        |             |
+        //   |              |     | save                | load & inc     |             |
+        //   |              |     | transition          | transition     |             |
+        //   |  in          |     |                     |                |             |
+        //   |  node        v     v     /-----------\   v  right node    |       out   |
+        // =====o==-------==o==-------==o in    out o==------==o|o==-----/       node  |
+        //   |          ^   left        \-----------/           |o==--------------==o=====
+        //   |  counter |   node       inner component                   ^             |
+        //   |  reset   |                                                | repetition  |
+        //   |  transition                                               | forward     |
+        //   |                                                           | transition  |
+        //   |                                                                         |
+        //   \--------------------- greedy repetition component -----------------------/
         // ```
         //
         // Lazy repetition:
         //
         // ```diagram
-        //    /-------------------------------------------------------------------------\
-        //    |                                                                         |
-        //    |                    | counter             | counter                      |
-        //    |                    | save                | load & inc                   |
-        //    |                    | transition          | transition                   |
-        //    |  in        left    |                     |                        out   |
-        //    |  node      node    v     /-----------\   v  right node            node  |
-        //  =====o==-------==o==-------==o in    out o==------==o|o==--------------==o=====
-        //    |          ^   ^           \-----------/           |o==--\  ^             |
-        //    |  counter |   |          inner component                |  | repetition  |
-        //    |  reset   |   |                                         |  | forward     |
-        //    |  transition  \-----------------------------------------/  | transition  |
-        //    |                      repetition back transition                         |
-        //    |                                                                         |
-        //    \--------------------- lazy repetition component -------------------------/
+        //   /-------------------------------------------------------------------------\
+        //   |                                                                         |
+        //   |                    | counter             | counter                      |
+        //   |                    | save                | load & inc                   |
+        //   |                    | transition          | transition                   |
+        //   |  in        left    |                     |                        out   |
+        //   |  node      node    v     /-----------\   v  right node            node  |
+        // =====o==-------==o==-------==o in    out o==------==o|o==--------------==o=====
+        //   |          ^   ^           \-----------/           |o==--\  ^             |
+        //   |  counter |   |          inner component                |  | repetition  |
+        //   |  reset   |   |                                         |  | forward     |
+        //   |  transition  \-----------------------------------------/  | transition  |
+        //   |                      repetition back transition                         |
+        //   |                                                                         |
+        //   \--------------------- lazy repetition component -------------------------/
         // ```
 
         let component = self.emit_expression(expression)?;
@@ -956,7 +957,7 @@ impl<'a> Compiler<'a> {
         let sub_route = self.get_current_route_ref_mut();
         sub_route.entry_node_index = sub_component.in_node_index;
         sub_route.exit_node_index = sub_component.out_node_index;
-        sub_route.is_fixed_matching_begin_point = true;
+        sub_route.is_fixed_cursor_begin_position = true;
 
         // 5. Restore the previous route.
         self.set_current_route_index(saved_route_index);
@@ -1033,7 +1034,7 @@ impl<'a> Compiler<'a> {
 
         sub_route.entry_node_index = sub_component.in_node_index;
         sub_route.exit_node_index = sub_component.out_node_index;
-        sub_route.is_fixed_matching_begin_point = true;
+        sub_route.is_fixed_cursor_begin_position = true;
 
         // 6. Restore the previous route.
         self.set_current_route_index(saved_route_index);
@@ -1139,7 +1140,7 @@ mod tests {
 
     use crate::{
         error::AnreError,
-        object_file::{MAIN_ROUTE_INDEX, Map},
+        object::{MAIN_ROUTE_INDEX, Map},
     };
 
     use super::{compile_from_anre, compile_from_regex};
@@ -1715,8 +1716,8 @@ define letter (['a'..'f'])
 # {0}"
             );
 
-            // Check `is_fixed_matching_begin_point`.
-            assert!(route.routes[MAIN_ROUTE_INDEX].is_fixed_matching_begin_point);
+            // Check `is_fixed_cursor_begin_position`.
+            assert!(route.routes[MAIN_ROUTE_INDEX].is_fixed_cursor_begin_position);
         }
 
         for route in generate_routes(r#"(is_not_bound(), 'a', is_end())"#, r#"\Ba$"#) {
@@ -1743,8 +1744,8 @@ define letter (['a'..'f'])
 # {0}"
             );
 
-            // Check the `is_fixed_matching_begin_point` property.
-            assert!(!route.routes[MAIN_ROUTE_INDEX].is_fixed_matching_begin_point);
+            // Check the `is_fixed_cursor_begin_position` property.
+            assert!(!route.routes[MAIN_ROUTE_INDEX].is_fixed_cursor_begin_position);
         }
     }
 

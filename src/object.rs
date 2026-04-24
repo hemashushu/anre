@@ -65,7 +65,7 @@ pub struct Route {
     // the process will not move the beginning point forward (one character) and try matching again.
     // This is also true for "lookahead assertions" and "lookbehind assertions" sub-routes,
     // thus the lookbehind assertion can only match a fixed number of characters in ANRE.
-    pub is_fixed_matching_begin_point: bool,
+    pub is_fixed_cursor_begin_position: bool,
 }
 
 // A route consists of multiple nodes.
@@ -73,7 +73,6 @@ pub struct Route {
 // except for the `exit node`, which is the end of the route and has no path.
 #[derive(Debug)]
 pub struct Node {
-    // exit transitions target the next node.
     pub path: Vec<Path>,
 }
 
@@ -103,7 +102,7 @@ impl Map {
             nodes: vec![],
             entry_node_index: 0,
             exit_node_index: 0,
-            is_fixed_matching_begin_point: false,
+            is_fixed_cursor_begin_position: false,
         };
 
         let idx = self.routes.len();
@@ -257,18 +256,20 @@ impl Route {
 //
 // Component can be nested, for example a group component can contain another group component.
 //
-// The following diagram illustrates a group component that wraps two components,
+// The following diagram illustrates a group component that wraps components
 // and connects them with jump transitions.
 //
 // ```diagram
-//   /-----------------------------------------------\
-//   |                                               |
-//   |    component        jump         component    |
-//   |  /-----------\   transition    /-----------\  |
-// =====o in    out o==-------------==o in    out o=====
-//   |  \-----------/                 \-----------/  |
-//   |                                               |
-//   \--------------- group component ---------------/
+//   /-------------------------------------------------------------\
+//   |                    jump                  other components   |
+//   |                  | transition          | and transitions    |
+//   |                  |                     |                    |
+//   |  /-----------\   |     /-----------\   |     /-----------\  |
+// =====o in    out o==-----==o in    out o==.....==o in    out o=====
+//   |  \-----------/         \-----------/         \-----------/  |
+//   |    component             component             component    |
+//   |                                                             |
+//   \----------------------- group component ---------------------/
 // ```
 //
 // A regular expression is compiled into
@@ -311,7 +312,7 @@ mod tests {
     use pretty_assertions::{assert_eq, assert_str_eq};
 
     use crate::{
-        object_file::Map,
+        object::Map,
         transition::{CharTransition, Transition},
     };
 
