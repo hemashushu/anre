@@ -1,6 +1,6 @@
 # Regex ANRE
 
-![Banner](docs/images/banner.png)
+![Logo](docs/images/logo-circle-wide-bg.png)
 
 [![Crates.io](https://img.shields.io/crates/v/regex-anre.svg)](https://crates.io/crates/regex-anre) [![Documentation](https://docs.rs/regex-anre/badge.svg)](https://docs.rs/regex-anre) [![License](https://img.shields.io/crates/l/regex-anre.svg)](https://github.com/hemashushu/regex-anre)
 
@@ -850,7 +850,7 @@ define part (num_25x || num_2xx || num_1xx || num_xx || num_x)
 
 ## 6. How the Regular Expression Engine Works
 
-![Detective](docs/images/detective.png)
+![Banner](docs/images/banner.png)
 
 In this section, I will discuss how the regular expression engine works. It covers the core functions of the engine, including matching, capturing, back-references, and backtracking. I will avoid introducing complex algorithms (like NFA and DFA).
 
@@ -1484,7 +1484,7 @@ When the sub-program end, the main program continues to execute the look-around 
 
 If you are interested in how the regular expression engine works, and how to implement a comprehensive engine, you can read the source code of this crate, which is well documented and organized.
 
-![Regex Engine Architecture](docs/images/cover-banner.png)
+![Book Cover](docs/images/book-cover-wide-bg.png)
 
 You can also read my book [Building a Regex Engine - Implementing a Comprehensive Regular Expression Engine with Rust](https://leanpub.com/building-a-regex-engine), which provides a viewpoint of how regular expression engines work, and gives a step-by-step guide to building a regular expression engine from scratch in Rust, covering all the features mentioned in this crate and more.
 
