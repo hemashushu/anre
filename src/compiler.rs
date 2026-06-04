@@ -84,7 +84,7 @@ impl<'a> Compiler<'a> {
 
     // Compiles the main route of the program.
     fn emit_program(&mut self, program: &Program) -> Result<(), AnreError> {
-        // Create an index capture group that wraps the root expression component.
+        // Create an indexed capturing group that wraps the root expression component.
         //
         // ```diagram
         //   /---------------------------------------------------------\
@@ -143,10 +143,6 @@ impl<'a> Compiler<'a> {
             Expression::Group(expressions) => self.emit_group(expressions)?,
             Expression::FunctionCall(function_call) => self.emit_function_call(function_call)?,
             Expression::Or(left, right) => self.emit_logic_or(left, right)?,
-            Expression::IndexCapture(expression) => self.emit_indexed_capture(expression)?,
-            Expression::NameCapture(name, expression) => {
-                self.emit_named_capture(name, expression)?
-            }
         };
 
         Ok(result)
@@ -311,6 +307,7 @@ impl<'a> Compiler<'a> {
                         "Missing argument for look-ahead assertion.".to_owned(),
                     ));
                 }
+
                 let FunctionArgument::Expression(next_expression) = &args[1] else {
                     unreachable!()
                 };
@@ -342,6 +339,23 @@ impl<'a> Compiler<'a> {
             FunctionName::IsEnd => self.emit_line_boundary_assertion(true),
             FunctionName::IsBound => self.emit_word_boundary_assertion(false),
             FunctionName::IsNotBound => self.emit_word_boundary_assertion(true),
+            FunctionName::Index => {
+                let args = &function_call.args;
+                let FunctionArgument::Expression(expression) = &args[0] else {
+                    unreachable!()
+                };
+                self.emit_indexed_capture(expression)
+            }
+            FunctionName::Name => {
+                let args = &function_call.args;
+                let FunctionArgument::Expression(expression) = &args[0] else {
+                    unreachable!()
+                };
+                let FunctionArgument::Identifier(name) = &args[1] else {
+                    unreachable!()
+                };
+                self.emit_named_capture(name, expression)
+            }
         }
     }
 
@@ -1069,19 +1083,25 @@ impl<'a> Compiler<'a> {
 fn check_first_expression_is_start_assertion(expression: &Expression) -> bool {
     match expression {
         Expression::Group(exps) => {
-            if let Some(first_exp) = exps.first()
-                && check_first_expression_is_start_assertion(first_exp)
-            {
-                true
-            } else {
-                false
+            if let Some(first_exp) = exps.first() {
+                return check_first_expression_is_start_assertion(first_exp);
             }
         }
-        Expression::NameCapture(_, exp) => check_first_expression_is_start_assertion(exp),
-        Expression::IndexCapture(exp) => check_first_expression_is_start_assertion(exp),
-        Expression::FunctionCall(func) if func.name == FunctionName::IsStart => true,
-        _ => false,
+        Expression::FunctionCall(fc) => {
+            if fc.name == FunctionName::IsStart {
+                return true;
+            }
+
+            if let Some(FunctionArgument::Expression(exp)) = fc.args.first() {
+                return check_first_expression_is_start_assertion(exp);
+            }
+        }
+        _ => {
+            //
+        }
     }
+
+    false
 }
 
 fn append_charset(charset: &CharSet, items: &mut Vec<CharSetItem>) -> Result<(), AnreError> {
@@ -1896,6 +1916,86 @@ define letter (['a'..'f'])
 # {1}
 # {2}"
             );
+        }
+
+        // Quantifier on capture groups
+        for route in generate_routes(
+            r#"('a', (#'b')?, 'c')"#, // anre
+            r#"a(b)?c"#,              // regex
+        ) {
+            let s = route.get_debug_text();
+            assert_str_eq!(
+                s,
+                "\
+- 0
+  -> 1, Char 'a'
+- 1
+  -> 6, Jump
+- 2
+  -> 3, Char 'b'
+- 3
+  -> 5, Capture end {1}
+- 4
+  -> 2, Capture start {1}
+- 5
+  -> 7, Jump
+- 6
+  -> 4, Jump
+  -> 7, Jump
+- 7
+  -> 8, Jump
+- 8
+  -> 9, Char 'c'
+- 9
+  -> 11, Capture end {0}
+> 10
+  -> 0, Capture start {0}
+< 11
+# {0}
+# {1}"
+            )
+        }
+
+        // Repetition on capture groups
+        for route in generate_routes(
+            r#"('a', (#'b'){3..5}, 'c')"#, // anre
+            r#"a(b){3,5}c"#,               // regex
+        ) {
+            let s = route.get_debug_text();
+            assert_str_eq!(
+                s,
+                "\
+- 0
+  -> 1, Char 'a'
+- 1
+  -> 6, Jump
+- 2
+  -> 3, Char 'b'
+- 3
+  -> 5, Capture end {1}
+- 4
+  -> 2, Capture start {1}
+- 5
+  -> 8, Counter inc
+- 6
+  -> 7, Counter reset
+- 7
+  -> 4, Counter save
+- 8
+  -> 7, Repetition back [3..5]
+  -> 9, Repetition forward [3..5]
+- 9
+  -> 10, Jump
+- 10
+  -> 11, Char 'c'
+- 11
+  -> 13, Capture end {0}
+> 12
+  -> 0, Capture start {0}
+< 13
+# {0}
+# {1}"
+            )
         }
     }
 

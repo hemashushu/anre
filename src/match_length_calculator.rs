@@ -81,12 +81,22 @@ pub fn calculate_match_length(exp: &Expression) -> MatchLength {
                 };
                 calculate_match_length(base_exp) + calculate_match_length(ref_exp)
             }
+            FunctionName::Index => {
+                let FunctionArgument::Expression(base_exp) = &function_call.args[0] else {
+                    unreachable!()
+                };
+                calculate_match_length(base_exp)
+            }
+            FunctionName::Name => {
+                let FunctionArgument::Expression(base_exp) = &function_call.args[0] else {
+                    unreachable!()
+                };
+                calculate_match_length(base_exp)
+            }
         },
         Expression::Or(left_exp, right_exp) => {
             calculate_match_length(left_exp) | calculate_match_length(right_exp)
         }
-        Expression::IndexCapture(exp) => calculate_match_length(exp),
-        Expression::NameCapture(_, exp) => calculate_match_length(exp),
     }
 }
 

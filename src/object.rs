@@ -278,7 +278,7 @@ impl Route {
 // entry point of the program, and the "out port" of the component is the exit point of the program.
 //
 // The following diagram illustrates a program component that wraps a root expression component
-// with index capture transitions.
+// with indexed capturing transitions.
 //
 // ```diagram
 //   /---------------------------------------------------------\

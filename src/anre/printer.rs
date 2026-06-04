@@ -48,6 +48,8 @@ impl Display for FunctionName {
             FunctionName::IsEnd => f.write_str("is_end"),
             FunctionName::IsBound => f.write_str("is_bound"),
             FunctionName::IsNotBound => f.write_str("is_not_bound"),
+            FunctionName::Index => f.write_str("index"),
+            FunctionName::Name => f.write_str("name"),
         }
     }
 }
@@ -112,6 +114,7 @@ impl Display for FunctionArgument {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FunctionArgument::Number(i) => write!(f, "{}", i),
+            FunctionArgument::Identifier(name) => write!(f, "{}", name),
             FunctionArgument::Expression(e) => write!(f, "{}", e),
         }
     }
@@ -156,20 +159,6 @@ impl Display for Expression {
                     write!(f, "({})", right)
                 } else {
                     write!(f, "{}", right)
-                }
-            }
-            Expression::IndexCapture(expression) => {
-                if matches!(expression.as_ref(), Expression::Or(_, _)) {
-                    write!(f, "#({})", expression)
-                } else {
-                    write!(f, "#{}", expression)
-                }
-            }
-            Expression::NameCapture(name, expression) => {
-                if matches!(expression.as_ref(), Expression::Or(_, _)) {
-                    write!(f, "{} as ({})", name, expression)
-                } else {
-                    write!(f, "{} as {}", expression, name)
                 }
             }
         }

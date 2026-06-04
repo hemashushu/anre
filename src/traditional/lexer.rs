@@ -15,7 +15,7 @@
 // | `{`m}     | Exact repetition (m times)                   |
 // | `{`m,n}   | Repetition range (from m to n)               |
 // | `{`m,}    | Repetition from m to infinity                |
-// | `(...)`   | Grouping with index capture                  |
+// | `(...)`   | Grouping with indexed capturing                  |
 // | `*`       | Zero or more repetitions                     |
 // | `+`       | One or more repetitions                      |
 // | `?`       | Optional or lazy repetition                  |

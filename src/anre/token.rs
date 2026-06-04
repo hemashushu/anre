@@ -57,7 +57,7 @@ pub enum Token {
     // Shared `..` operator used in char ranges and repetition ranges.
     Range,
 
-    // Prefix operator for index capture such as `#(...)`.
+    // Prefix operator for indexed capturing such as `#(...)`.
     Hash,
 
     // Numeric backreference prefix such as `^1`, `^2`, etc.

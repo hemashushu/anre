@@ -8,12 +8,13 @@ use std::ops::{Index, Range};
 
 use crate::{
     compiler::{compile_from_anre, compile_from_regex},
+    context::Context,
     error::AnreError,
     object::Map,
     process::start_process,
-    context::Context,
 };
 
+#[derive(Debug)]
 pub struct Regex {
     pub map: Map,
 }
@@ -138,7 +139,15 @@ impl<'a, 'b> Iterator for CaptureMatches<'a, 'b> {
             })
             .collect();
 
-        self.last_position = matches[0].end;
+        self.last_position = if matches[0].end == self.last_position {
+            // To prevent infinite loops when the regex can match an empty string,
+            // we need to ensure that we move forward in the input string.
+            // If the match is empty (i.e., start and end are the same), we will move the last_position by one character
+            // to avoid matching the same position again.
+            self.last_position + 1
+        } else {
+            matches[0].end
+        };
 
         Some(Captures { matches })
     }
@@ -176,7 +185,15 @@ impl<'a, 'b> Iterator for Matches<'a, 'b> {
             sub_string(self.context.bytes, match_range.start, match_range.end),
         );
 
-        self.last_position = match_.end;
+        self.last_position = if match_.end == self.last_position {
+            // To prevent infinite loops when the regex can match an empty string,
+            // we need to ensure that we move forward in the input string.
+            // If the match is empty (i.e., start and end are the same), we will move the last_position by one character
+            // to avoid matching the same position again.
+            self.last_position + 1
+        } else {
+            match_.end
+        };
 
         Some(match_)
     }
@@ -1150,6 +1167,19 @@ mod tests {
             assert_eq!(matches.next(), None);
         }
 
+        // zero repetition
+        for re in build(
+            r#"('a', 'b'{0}, 'c')"#, // ANRE
+            r#"ab{0}c"#,             // traditional
+        ) {
+            let text = "abcacabbc";
+            //               "   ^^    "
+            let mut matches = re.find_iter(text);
+
+            assert_eq!(matches.next(), Some(new_match(3, 5, "ac")));
+            assert_eq!(matches.next(), None);
+        }
+
         // repetition + other pattern
         for re in build(
             r#"('a'{2}, char_digit)"#, // ANRE
@@ -1161,6 +1191,76 @@ mod tests {
 
             assert_eq!(matches.next(), Some(new_match(6, 9, "aa1")));
             assert_eq!(matches.next(), Some(new_match(12, 15, "aa1")));
+            assert_eq!(matches.next(), None);
+        }
+    }
+
+    #[test]
+    fn test_process_repeat_from() {
+        // char repetition
+        for re in build(
+            r#"'a'{2..}"#, // ANRE
+            r#"a{2,}"#,    // traditional
+        ) {
+            let text = "abaabbaaabbbaaaabbbb";
+            //               "  ^^  ^^^   ^^^^    "
+            let mut matches = re.find_iter(text);
+
+            assert_eq!(matches.next(), Some(new_match(2, 4, "aa")));
+            assert_eq!(matches.next(), Some(new_match(6, 9, "aaa")));
+            assert_eq!(matches.next(), Some(new_match(12, 16, "aaaa")));
+            assert_eq!(matches.next(), None);
+        }
+
+        // char repetition - lazy
+        for re in build(
+            r#"'a'{2..}?"#, // ANRE
+            r#"a{2,}?"#,    // traditional
+        ) {
+            let text = "abaabbaaabbbaaaabbbb";
+            //               "  ^^  ^^    ^^vv    "
+            let mut matches = re.find_iter(text);
+
+            assert_eq!(matches.next(), Some(new_match(2, 4, "aa")));
+            assert_eq!(matches.next(), Some(new_match(6, 8, "aa")));
+            assert_eq!(matches.next(), Some(new_match(12, 14, "aa")));
+            assert_eq!(matches.next(), Some(new_match(14, 16, "aa")));
+            assert_eq!(matches.next(), None);
+        }
+
+        // repeat from 0
+        for re in build(
+            r#"'a'{0..}"#, // ANRE
+            r#"a{0,}"#,    // traditional
+        ) {
+            let text = "abaabbaaabbb";
+            //               "^ ^^  ^^^    "
+            let mut matches = re.find_iter(text);
+
+            assert_eq!(matches.next(), Some(new_match(0, 1, "a")));
+            assert_eq!(matches.next(), Some(new_match(1, 1, "")));
+            assert_eq!(matches.next(), Some(new_match(2, 4, "aa")));
+            assert_eq!(matches.next(), Some(new_match(4, 4, "")));
+            assert_eq!(matches.next(), Some(new_match(5, 5, "")));
+            assert_eq!(matches.next(), Some(new_match(6, 9, "aaa")));
+            assert_eq!(matches.next(), Some(new_match(9, 9, "")));
+            assert_eq!(matches.next(), Some(new_match(10, 10, "")));
+            assert_eq!(matches.next(), Some(new_match(11, 11, "")));
+            assert_eq!(matches.next(), None);
+        }
+
+        // repeat from 1
+        for re in build(
+            r#"'a'{1..}"#, // ANRE
+            r#"a{1,}"#,    // traditional
+        ) {
+            let text = "abaabbaaabbb";
+            //               "^ ^^  ^^^    "
+            let mut matches = re.find_iter(text);
+
+            assert_eq!(matches.next(), Some(new_match(0, 1, "a")));
+            assert_eq!(matches.next(), Some(new_match(2, 4, "aa")));
+            assert_eq!(matches.next(), Some(new_match(6, 9, "aaa")));
             assert_eq!(matches.next(), None);
         }
     }
@@ -1200,44 +1300,45 @@ mod tests {
             assert_eq!(matches.next(), Some(new_match(7, 8, "a")));
             // omit the follow up
         }
-    }
 
-    #[test]
-    fn test_process_repeat_from() {
-        // char repetition
+        // repetition with identical start and end
         for re in build(
-            r#"'a'{2..}"#, // ANRE
-            r#"a{2,}"#,    // traditional
+            r#"'a'{3..3}"#, // ANRE
+            r#"a{3}"#,      // traditional
         ) {
             let text = "abaabbaaabbbaaaabbbb";
-            //               "  ^^  ^^^   ^^^^    "
+            //               "      ^^^   ^^^     "
             let mut matches = re.find_iter(text);
-
-            assert_eq!(matches.next(), Some(new_match(2, 4, "aa")));
             assert_eq!(matches.next(), Some(new_match(6, 9, "aaa")));
-            assert_eq!(matches.next(), Some(new_match(12, 16, "aaaa")));
+            assert_eq!(matches.next(), Some(new_match(12, 15, "aaa")));
             assert_eq!(matches.next(), None);
         }
 
-        // char repetition - lazy
+        // repeat from 0 to 2
         for re in build(
-            r#"'a'{2..}?"#, // ANRE
-            r#"a{2,}?"#,    // traditional
+            r#"'a'{0..2}"#, // ANRE
+            r#"a{0,2}"#,    // traditional
         ) {
-            let text = "abaabbaaabbbaaaabbbb";
-            //               "  ^^  ^^    ^^vv    "
+            let text = "abaabbaaabbb";
+            //               "^ ^^  ^^^    "
             let mut matches = re.find_iter(text);
 
+            assert_eq!(matches.next(), Some(new_match(0, 1, "a")));
+            assert_eq!(matches.next(), Some(new_match(1, 1, "")));
             assert_eq!(matches.next(), Some(new_match(2, 4, "aa")));
+            assert_eq!(matches.next(), Some(new_match(4, 4, "")));
+            assert_eq!(matches.next(), Some(new_match(5, 5, "")));
             assert_eq!(matches.next(), Some(new_match(6, 8, "aa")));
-            assert_eq!(matches.next(), Some(new_match(12, 14, "aa")));
-            assert_eq!(matches.next(), Some(new_match(14, 16, "aa")));
+            assert_eq!(matches.next(), Some(new_match(8, 9, "a")));
+            assert_eq!(matches.next(), Some(new_match(9, 9, "")));
+            assert_eq!(matches.next(), Some(new_match(10, 10, "")));
+            assert_eq!(matches.next(), Some(new_match(11, 11, "")));
             assert_eq!(matches.next(), None);
         }
     }
 
     #[test]
-    fn test_process_optional_and_repeat_range() {
+    fn test_process_repeat_and_optional() {
         // implicit
         for re in build(
             r#"('a', 'b'{0..3}, 'c')"#, // ANRE
@@ -1377,7 +1478,7 @@ mod tests {
 
     #[test]
     fn test_process_capture() {
-        // index capture
+        // indexed capturing
         for re in build(
             r#"(#("0x" || "0o" || "0b"), #(char_digit+))"#, // ANRE
             r#"(0x|0o|0b)(\d+)"#,                           // traditional
@@ -1487,6 +1588,31 @@ mod tests {
     }
 
     #[test]
+    fn test_process_optional_capture() {
+        for re in build(
+            r#"('a', (#'b')?, 'c')"#, // ANRE
+            r#"a(b)?c"#,              // traditional
+        ) {
+            let text = "abacbcabc";
+            //               "  ^^  ^^^"
+
+            let mut matches = re.captures_iter(text);
+
+            assert_eq!(
+                matches.next(),
+                Some(new_captures(&[(2, 4, None, "ac"), (3, 3, None, "")]))
+            );
+
+            assert_eq!(
+                matches.next(),
+                Some(new_captures(&[(6, 9, None, "abc"), (7, 8, None, "b")]))
+            );
+
+            assert_eq!(matches.next(), None);
+        }
+    }
+
+    #[test]
     fn test_process_backreference() {
         for re in build(
             r#"
@@ -1531,7 +1657,7 @@ mod tests {
             );
         }
 
-        // backreference with number index capture
+        // backreference with number indexed capturing
         for re in build(
             r#"
             (

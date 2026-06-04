@@ -300,6 +300,7 @@ impl Transition {
             }
             Transition::CaptureStart(transition) => {
                 context.matched_slots[transition.capture_group_index].start = cursor;
+                context.matched_slots[transition.capture_group_index].end = cursor;
                 ExecuteResult::Success(0, 0)
             }
             Transition::CaptureEnd(transition) => {

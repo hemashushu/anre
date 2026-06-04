@@ -15,7 +15,7 @@ Regex-anre provides the same API as the [Rust standard regular expression librar
 - [1. Features](#1-features)
 - [2. Quick Start](#2-quick-start)
   - [2.1 Find a specific pattern in a string](#21-find-a-specific-pattern-in-a-string)
-  - [2.2 Match text and get each capture group](#22-match-text-and-get-each-capture-group)
+  - [2.2 Match text and get each capturing group](#22-match-text-and-get-each-capturing-group)
   - [2.3 Validate a string](#23-validate-a-string)
 - [3. Regular Expression Cheatsheet](#3-regular-expression-cheatsheet)
   - [3.1 Literals](#31-literals)
@@ -35,15 +35,16 @@ Regex-anre provides the same API as the [Rust standard regular expression librar
     - [4.1.2 Strings](#412-strings)
     - [4.1.3 Character Sets](#413-character-sets)
   - [4.2 Functions](#42-functions)
-    - [4.2.1 Invocations](#421-invocations)
+    - [4.2.1 Nested Invocations](#421-nested-invocations)
     - [4.2.2 Method-like Invocation](#422-method-like-invocation)
+    - [4.2.3 Chaining Invocations](#423-chaining-invocations)
   - [4.3 Repetition](#43-repetition)
   - [4.4 Boundary Assertions](#44-boundary-assertions)
   - [4.5 Lookaround Assertions](#45-lookaround-assertions)
   - [4.6 Logical Operators](#46-logical-operators)
   - [4.7 Groups](#47-groups)
-  - [4.8 Capture Groups and Backreferences](#48-capture-groups-and-backreferences)
-    - [4.8.1 Capture Groups](#481-capture-groups)
+  - [4.8 Capturing Groups and Backreferences](#48-capturing-groups-and-backreferences)
+    - [4.8.1 Capturing Groups](#481-capturing-groups)
     - [4.8.2 Backreferences](#482-backreferences)
   - [4.9 Separator and Multiline](#49-separator-and-multiline)
   - [4.10 Macros](#410-macros)
@@ -63,7 +64,7 @@ Regex-anre provides the same API as the [Rust standard regular expression librar
     - [6.4.2 Repetition](#642-repetition)
     - [6.4.3 Optional](#643-optional)
     - [6.4.4 Conjunction](#644-conjunction)
-    - [6.4.5 Capture Groups](#645-capture-groups)
+    - [6.4.5 Capturing Groups](#645-capturing-groups)
     - [6.4.6 Back-references](#646-back-references)
     - [6.4.7 Alternative Branches](#647-alternative-branches)
     - [6.4.9 Boundary Assertions](#649-boundary-assertions)
@@ -100,7 +101,7 @@ Alternatively, you can manually add it to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-regex-anre = "2.0.0"
+regex-anre = "2.1.0"
 ```
 
 The following demonstrates the three typical use cases of regular expressions.
@@ -113,7 +114,7 @@ use regex_anre::Regex;
 // Using traditional regex to find hexadecimal color codes
 let re = Regex::new(r"#[\da-fA-F]{6}").unwrap();
 
-// Using ANRE
+// Using ANRE language
 let re = Regex::from_anre("('#', [char_digit, 'a'..'f', 'A'..'F'].repeat(6))").unwrap();
 
 let text = "The color is #ffbb33 and the background is #bbdd99.";
@@ -132,7 +133,7 @@ for m in matches {
 }
 ```
 
-### 2.2 Match text and get each capture group
+### 2.2 Match text and get each capturing group
 
 ```rust
 use regex_anre::Regex;
@@ -141,7 +142,7 @@ use regex_anre::Regex;
 let re =
     Regex::new(r"#(?<red>[\da-fA-F]{2})(?<green>[\da-fA-F]{2})(?<blue>[\da-fA-F]{2})").unwrap();
 
-// Using ANRE
+// Using ANRE language
 let re = Regex::from_anre(
     "
     /* ANRE supports comments, multiline and macro definitions,
@@ -167,7 +168,7 @@ let re = Regex::from_anre(
 
 let text = "The color is #ffbb33 and the background is #bbdd99.";
 
-// Find one match and print capture groups
+// Find one match and print capturing groups
 if let Some(m) = re.captures(text) {
     println!("Found match: {}", m.get(0).unwrap().as_str());
     println!("Red: {}", m.name("red").unwrap().as_str());
@@ -177,7 +178,7 @@ if let Some(m) = re.captures(text) {
     println!("No match found");
 }
 
-// Find all matches and print capture groups
+// Find all matches and print capturing groups
 let matches: Vec<_> = re.captures_iter(text).collect();
 for m in matches {
     println!("Found match: {}", m.get(0).unwrap().as_str());
@@ -195,7 +196,7 @@ use regex_anre::Regex;
 // Using a traditional regex to validate a date string in the format `YYYY-MM-DD`
 let re = Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
 
-// Using ANRE
+// Using ANRE language
 let re = Regex::from_anre(
     "
     /* Validate a date string in the format `YYYY-MM-DD`
@@ -224,48 +225,48 @@ The following table summarizes the patterns of regular expressions and the corre
 
 ### 3.1 Literals
 
-| Regex Pattern | ANRE Expression          | Description                                            |
-|---------------|--------------------------|--------------------------------------------------------|
-| `a`           | `'a'`                    | Match a single character                               |
-| `abc`         | `"abc"`                  | Match a series of characters in order                  |
-| `[abc]`       | `['a', 'b', 'c']`        | Match any character in the set                         |
-| `[a-z]`       | `['a'..'z']`             | Match any character in the range                       |
-| `[a-zA-Z]`    | `['a'..'z', 'A'..'Z']`   | Match any character in the combined ranges             |
-| `[^abc]`      | `!['a', 'b', 'c']`       | Match any character not in the set                     |
-| `\d`          | `char_digit`             | Match any digit character (0-9)                        |
-| `\D`          | `char_not_digit`         | Match any non-digit character                          |
-| `\w`          | `char_word`              | Match any word character (alphanumeric or underscore)  |
-| `\W`          | `char_not_word`          | Match any non-word character                           |
-| `\s`          | `char_space`             | Match any whitespace character (space, tab, newline)   |
-| `\S`          | `char_not_space`         | Match any non-whitespace character                     |
-| `[a-f\d]`     | `['a'..'f', char_digit]` | Match any character in the set (combine ranges and predefined character classes) |
-| `.`           | `char_any`               | Match any character except newline                     |
+| Regex Pattern | ANRE Expression           | Description                                            |
+|---------------|---------------------------|--------------------------------------------------------|
+| `a`           | `'a'`                     | Match a single character                               |
+| `abc`         | `"abc"`                   | Match a series of characters in order                  |
+| `[abc]`       | `['a', 'b', 'c']`         | Match any character in the set                         |
+| `[a-z]`       | `['a'..'z']`              | Match any character in the range                       |
+| `[a-zA-Z]`    | `['a'..'z', 'A'..'Z']`    | Match any character in the combined ranges             |
+| `[^abc]`      | `!['a', 'b', 'c']`        | Match any character not in the set                     |
+| `\d`          | `char_digit`              | Match any digit character (0-9)                        |
+| `\D`          | `char_not_digit`          | Match any non-digit character                          |
+| `\w`          | `char_word`               | Match any word character (alphanumeric or underscore)  |
+| `\W`          | `char_not_word`           | Match any non-word character                           |
+| `\s`          | `char_space`              | Match any whitespace character (space, tab, newline)   |
+| `\S`          | `char_not_space`          | Match any non-whitespace character                     |
+| `[a-f\d]`     | `['a'..'f', char_digit]`  | Match any character in the set (combine ranges and predefined character classes) |
+| `.`           | `char_any`                | Match any character except newline                     |
 
 ### 3.2 Repetition
 
 #### 3.2.1 Greedy quantifiers
 
-| Regex Pattern | ANRE Expression           | Description                              |
-|---------------|---------------------------|------------------------------------------|
-| `a?`          | `'a'?`                    | Match zero or one occurrence of 'a'      |
-| `a+`          | `'a'+`                    | Match one or more occurrences of 'a'     |
-| `a*`          | `'a'*`                    | Match zero or more occurrences of 'a'    |
-| `a{n}`        | `'a'{n}`                  | Match exactly n occurrences of 'a'       |
-| `a{n,}`       | `'a'{n..}`                | Match at least n occurrences of 'a'      |
-| `a{m,n}`      | `'a'{m..n}`               | Match between m and n occurrences of 'a' |
+| Regex Pattern | ANRE Expression           | Description                                      |
+|---------------|---------------------------|--------------------------------------------------|
+| `a?`          | `'a'?`                    | Match zero or one occurrence of 'a'              |
+| `a+`          | `'a'+`                    | Match one or more occurrences of 'a'             |
+| `a*`          | `'a'*`                    | Match zero or more occurrences of 'a'            |
+| `a{n}`        | `'a'{n}`                  | Match exactly n occurrences of 'a', n >= 0       |
+| `a{n,}`       | `'a'{n..}`                | Match at least n occurrences of 'a', n >= 0      |
+| `a{m,n}`      | `'a'{m..n}`               | Match between m and n occurrences of 'a', n >= m |
 
 #### 3.2.2 Lazy quantifiers
 
 Lazy quantifiers match as few characters as possible while still satisfying the condition. They are denoted by a `?` after the greedy quantifier. For example, `a??` will match zero or one occurrence of 'a', but it will prefer to match zero occurrences if possible.
 
-| Regex Pattern | ANRE Expression           | Description                              |
-|---------------|---------------------------|------------------------------------------|
-| `a??`         | `'a'??`                   | Match zero or one occurrence of 'a'      |
-| `a+?`         | `'a'+?`                   | Match one or more occurrences of 'a'     |
-| `a*?`         | `'a'*?`                   | Match zero or more occurrences of 'a'    |
-| `a{n}?`       | `'a'{n}?`                 | Identical to `'a'{n}`                    |
-| `a{n,}?`      | `'a'{n..}?`               | Match at least n occurrences of 'a'      |
-| `a{m,n}?`     | `'a'{m..n}?`              | Match between m and n occurrences of 'a' |
+| Regex Pattern | ANRE Expression           | Description                                      |
+|---------------|---------------------------|--------------------------------------------------|
+| `a??`         | `'a'??`                   | Match zero or one occurrence of 'a'              |
+| `a+?`         | `'a'+?`                   | Match one or more occurrences of 'a'             |
+| `a*?`         | `'a'*?`                   | Match zero or more occurrences of 'a'            |
+| `a{n}?`       | `'a'{n}?`                 | Identical to `'a'{n}`, n >= 0                    |
+| `a{n,}?`      | `'a'{n..}?`               | Match at least n occurrences of 'a', n >= 0      |
+| `a{m,n}?`     | `'a'{m..n}?`              | Match between m and n occurrences of 'a', n >= m |
 
 Note that there is no effect for `a{n}?` because it matches exactly n occurrences, so there is no room for laziness.
 
@@ -302,9 +303,9 @@ Note that there is no effect for `a{n}?` because it matches exactly n occurrence
 
 | Regex Pattern  | ANRE Expression          | Description                         |
 |----------------|--------------------------|-------------------------------------|
-| `(abc)`        | `#("abc")`               | Indexed capture group               |
+| `(abc)`        | `#("abc")`               | Indexed capturing group               |
 | `\1`           | `^1`                     | Indexed backreference               |
-| `(?<name>abc)` | `"abc" as name`          | Named capture group                 |
+| `(?<name>abc)` | `"abc" as name`          | Named capturing group                 |
 | `\k<name>`     | `name`                   | Named backreference                 |
 
 ### 3.5 Logical Operators
@@ -325,7 +326,7 @@ The ANRE language is quite simple, it is composed of literals, functions, group 
 - Functions represent the operations that can be performed on expressions, such as repetition. They take one or more expressions and numbers as parameters and return a _new expression_. There are also some functions that have no parameters, such as boundary assertions.
 - Group operators allow us to group expressions together to form more complex patterns. Note that the group operator is mandatory if there are more than one expression at the root level.
 - Logical operators allow us to combine expressions using logical `OR`.
-- Identifiers are used to define macros and capture groups. They can be used as expressions after they are defined.
+- Identifiers are used to define macros and capturing groups. They can be used as expressions after they are defined.
 
 ### 4.1 Literals
 
@@ -343,15 +344,15 @@ For example:
 
 Character literals also support escape sequences, which allow us to represent special characters that cannot be typed directly. The following table lists the common escape sequences:
 
-| Escape Sequence | Character         | Description     |
-|-----------------|-------------------|-----------------|
-| `\\`            | `\`               | Backslash       |
-| `\'`            | `'`               | Single quote    |
-| `\"`            | `"`               | Double quote    |
-| `\n`            | Newline           | Line feed       |
-| `\r`            | Carriage return   | Carriage return |
-| `\t`            | Tab               | Horizontal tab  |
-| `\0`            | Null character    | Null character  |
+| Escape Sequence | Character         | Description                         |
+|-----------------|-------------------|-------------------------------------|
+| `\\`            | `\`               | Backslash                           |
+| `\'`            | `'`               | Single quote                        |
+| `\"`            | `"`               | Double quote                        |
+| `\n`            | Newline           | Line feed                           |
+| `\r`            | Carriage return   | Carriage return                     |
+| `\t`            | Tab               | Horizontal tab                      |
+| `\0`            | Null character    | Null character                      |
 | `\u{X}`         | Unicode character | Unicode character with code point X |
 
 Where `X` is hexadecimal digits `(0-9, a-f, A-F)` and the valid range for `X` is from `0` to `10FFFF`, excluding the surrogate range `D800` to `DFFF`.
@@ -444,17 +445,13 @@ For example:
 
 This is a function with name `repeat` that takes an expression (a character literal 'a') and a number 3 as parameters, this function represents exactly three occurrences of 'a', it is equivalent to the regex `a{3}`.
 
-Typical function signature:
+A function takes arguments and return values, the typical function signature is:
 
 `function_name(expression, args...) -> expression`
 
 Not all functions have parameters and return values, for example, `is_start()` is a function that takes no parameters and returns `void` that represents the start of the string, it is equivalent to the regex `^`.
 
-#### 4.2.1 Invocations
-
-Function invocation syntax:
-
-`function_name(expression, args...)`
+#### 4.2.1 Nested Invocations
 
 If a function returns an expression, and another function takes an expression as a parameter, we can nest the function invocations together to create more complex expressions.
 
@@ -466,13 +463,15 @@ This is a function invocation where the `optional` function takes another functi
 
 #### 4.2.2 Method-like Invocation
 
-ANRE also supports method-like invocation syntax, where a function can be invoked as a method on an expression. For example, `'a'.repeat(3)` is equivalent to `repeat('a', 3)`.
+ANRE also supports method-like invocation syntax, where a function can be invoked as a method on an expression. For example, `repeat('a', 3)` can be written as `'a'.repeat(3)`.
 
 Method-like invocation syntax:
 
 `expression.function_name(args...) -> expression`
 
-Similar to nested invocations, method-like invocation can be chained together, for example, the following expressions are equivalent:
+#### 4.2.3 Chaining Invocations
+
+Similar to nested invocations, if a function returns an expression, and another function takes an expression as a parameter, method-like invocation can be chained together. For example, the following expressions are equivalent:
 
 - `optional(repeat('a', 3))`
 - `'a'.repeat(3).optional()`
@@ -485,20 +484,22 @@ Repetition allows us to match a pattern multiple times. As the previous section 
 
 The following table lists the repetition functions and their corresponding notation format:
 
-| Function                  | Notation    | Description                                         |
-|---------------------------|-------------|-----------------------------------------------------|
-| `optional(exp)`           | `exp?`      | Match zero or one occurrence of the expression      |
-| `one_or_more(exp)`        | `exp+`      | Match one or more occurrences of the expression     |
-| `zero_or_more(exp)`       | `exp*`      | Match zero or more occurrences of the expression    |
-| `repeat(exp, n)`          | `exp{n}`    | Match exactly n occurrences of the expression       |
-| `repeat_from(exp, n)`     | `exp{n..}`  | Match at least n occurrences of the expression      |
-| `repeat_range(exp, m, n)` | `exp{m..n}` | Match between m and n occurrences of the expression |
+| Function                  | Method                   | Notation    | Description                                         |
+|---------------------------|--------------------------|-------------|-----------------------------------------------------|
+| `optional(exp)`           | `exp.optional()`         | `exp?`      | Match zero or one occurrence of the expression      |
+| `one_or_more(exp)`        | `exp.one_or_more()`      | `exp+`      | Match one or more occurrences of the expression     |
+| `zero_or_more(exp)`       | `exp.zero_or_more()`     | `exp*`      | Match zero or more occurrences of the expression    |
+| `repeat(exp, n)`          | `exp.repeat(n)`          | `exp{n}`    | Match exactly n occurrences of the expression       |
+| `repeat_from(exp, n)`     | `exp.repeat_from(n)`     | `exp{n..}`  | Match at least n occurrences of the expression      |
+| `repeat_range(exp, m, n)` | `exp.repeat_range(m, n)` | `exp{m..n}` | Match between m and n occurrences of the expression |
 
 For example, for a given source string `"aa-aaa-aaaa"`:
 
 - `"aa".repeat(2)` will match "aa" at index 0, 3, 7, and 9.
 - `"aa".repeat_from(3)` will match "aaa" at index 3 and "aaaa" at index 7.
 - `"aa".repeat_range(1, 3)` will match "aa" at index 0, "aaa" at index 3, and "aaa" at index 7
+
+> `n` must be a non-negative integer (i.e., `n >= 0`), and `n` must be greater than or equal to `m` (i.e., `n >= m`), otherwise it is an invalid expression.
 
 Since all repetition functions take an expression as the first parameter, and return a new expression, thus they support method-like chain invocation.
 
@@ -508,14 +509,14 @@ The repetition functions are greedy by default, which means they will match as m
 
 There are also lazy versions of the repetition functions, such as `lazy_optional` and `lazy_repeat_range`. They have the same parameters and return values as their greedy counterparts, but they match as few characters as possible while still satisfying the condition.
 
-| Function                       | Notation     | Description                                         |
-|--------------------------------|--------------|-----------------------------------------------------|
-| `lazy_optional(exp)`           | `exp??`      | Match zero or one occurrence of the expression      |
-| `lazy_one_or_more(exp)`        | `exp+?`      | Match one or more occurrences of the expression     |
-| `lazy_zero_or_more(exp)`       | `exp*?`      | Match zero or more occurrences of the expression    |
-| `lazy_repeat(exp, n)`          | `exp{n}?`    | Match exactly n occurrences of the expression       |
-| `lazy_repeat_from(exp, n)`     | `exp{n..}?`  | Match at least n occurrences of the expression      |
-| `lazy_repeat_range(exp, m, n)` | `exp{m..n}?` | Match between m and n occurrences of the expression |
+| Function                       | Method                        | Notation     | Description                                         |
+|--------------------------------|-------------------------------|--------------|-----------------------------------------------------|
+| `lazy_optional(exp)`           | `exp.lazy_optional()`         | `exp??`      | Match zero or one occurrence of the expression      |
+| `lazy_one_or_more(exp)`        | `exp.lazy_one_or_more()`      | `exp+?`      | Match one or more occurrences of the expression     |
+| `lazy_zero_or_more(exp)`       | `exp.lazy_zero_or_more()`     | `exp*?`      | Match zero or more occurrences of the expression    |
+| `lazy_repeat(exp, n)`          | `exp.lazy_repeat(n)`          | `exp{n}?`    | Match exactly n occurrences of the expression       |
+| `lazy_repeat_from(exp, n)`     | `exp.lazy_repeat_from(n)`     | `exp{n..}?`  | Match at least n occurrences of the expression      |
+| `lazy_repeat_range(exp, m, n)` | `exp.lazy_repeat_range(m, n)` | `exp{m..n}?` | Match between m and n occurrences of the expression |
 
 For example, for a given source string `"aaaa"`, expression `'a'.lazy_repeat_from(1)` will match "a" at index 0, "a" at index 1, "a" at index 2, and "a" at index 3.
 
@@ -531,6 +532,8 @@ There are four boundary assertions in ANRE, which are represented as functions t
 | `is_end()`       | Match the end of the string         |
 | `is_bound()`     | Match a word boundary               |
 | `is_not_bound()` | Match a non-word boundary           |
+
+> Boundary assertions have no parameters and return value, they can only be written in function-like invocation syntax.
 
 Where "word boundary" means the position between a word character and a non-word character. For example, consider the string "ab  cd":
 
@@ -562,12 +565,12 @@ On the other hand, "asserting" operations only check if the pattern matches at t
 
 Lookaround assertions are a type of assertion that allows us to check if a pattern matches before or after the current cursor position without moving the cursor. There are four lookaround assertions in ANRE, which are represented as functions that take two expressions as parameters and return `void`.
 
-| Assertion                         | Description         |
-|-----------------------------------|---------------------|
-| `is_before(exp, next_exp)`        | Positive lookahead  |
-| `is_not_before(exp, next_exp)`    | Negative lookahead  |
-| `is_after(exp, previous_exp)`     | Positive lookbehind |
-| `is_not_after(exp, previous_exp)` | Negative lookbehind |
+| Assertion                         | Method                           | Description         |
+|-----------------------------------|----------------------------------|--------------------|
+| `is_before(exp, next_exp)`        | `exp.is_before(next_exp)`        | Positive lookahead  |
+| `is_not_before(exp, next_exp)`    | `exp.is_not_before(next_exp)`    | Negative lookahead  |
+| `is_after(exp, previous_exp)`     | `exp.is_after(previous_exp)`     | Positive lookbehind |
+| `is_not_after(exp, previous_exp)` | `exp.is_not_after(previous_exp)` | Negative lookbehind |
 
 Example:
 
@@ -624,11 +627,11 @@ The correct way to write this expression is to group the two kinds of numbers to
 
 > The precedence of `OR` operators in traditional regular expressions is lower than the expression sequence, thus the above expression can be written without any parentheses as `\d+UL|0b[01]+`.
 
-### 4.8 Capture Groups and Backreferences
+### 4.8 Capturing Groups and Backreferences
 
-Sometimes we want to not only match a pattern, but also want to get specific parts of the matched text, this is where capture groups come in.
+Sometimes we want to not only match a pattern, but also want to get specific parts of the matched text, this is where capturing groups come in.
 
-#### 4.8.1 Capture Groups
+#### 4.8.1 Capturing Groups
 
 In ANRE, we can capture a part of the matched text by preceding the expression with `#`.
 
@@ -636,21 +639,32 @@ Syntax:
 
 `#expression`
 
-For example, `(#char_word+, #char_digit+)` will match a word followed by a number, and capture the word and the number separately. For a given source string `"foo abc123 bar"`, this expression will match "abc123", and capture "abc" and "123" in two separate capture groups with indices 1 and 2 (the index 0 is reserved for the entire match).
+For example, `(#char_word+, #char_digit+)` will match a word followed by a number, and capture the word and the number separately. For a given source string `"foo abc123 bar"`, this expression will match "abc123", and capture "abc" and "123" in two separate capturing groups with indices 1 and 2 (the index 0 is reserved for the entire match).
 
-Besides indexed capture groups, ANRE also supports named capture groups, which are defined by appending `as name` to the expression.
+> Operator `#` has lower precedence than the notations and the method-like invocation, thus `#'a'?` is parsed as `#('a'?)`, and `#char_word.repeat(3)` is parsed as `#(char_word.repeat(3))`.
+
+Besides indexed capturing groups, ANRE also supports named capturing groups, which are defined by appending `as name` to the expression.
 
 Syntax:
 
-`expression as name`
+`expression as NAME`
 
-Named capture groups can be accessed by both their name and their index, for example, `(char_word+ as word, char_digit+ as number)` will match a word followed by a number, and capture the word and the number in two separate capture groups with names "word" and "number", and indices 1 and 2 respectively.
+Where `NAME` is an identifier that represents the name of the capturing group.
 
-> Named capture groups create indexed capture groups automatically, thus you are not necessary to precede the expression with `#`.
+Named capturing groups can be accessed by both their name and their index, for example, `(char_word+ as word, char_digit+ as number)` will match a word followed by a number, and capture the word and the number in two separate capturing groups with names "word" and "number", and indices 1 and 2 respectively.
+
+> Named capturing groups create indexed capturing groups automatically, thus you are not necessary to precede the expression with `#`.
+
+ANRE also provides functions to create the capturing groups:
+
+| Function          | Method           | Description             |
+|-------------------|------------------|-------------------------|
+| `index(exp)`      | `exp.index()`    | Indexed capturing group |
+| `name(exp, NAME)` | `exp.name(NAME)` | Named capturing group   |
 
 #### 4.8.2 Backreferences
 
-Backreferences allow us to refer to previously captured groups in the same regular expression. In ANRE, backreferences are represented by the `^` operator followed by the index or name of the capture group.
+Backreferences allow us to refer to previously capturing groups in the same regular expression. In ANRE, backreferences are represented by the `^` operator followed by the index or name of the capturing group.
 
 Syntax:
 
@@ -1281,26 +1295,26 @@ The compiler wraps the sequence of components into a "group component", where al
 
 When any inner component returns false, the group component returns false immediately without trying the remaining components. Only when all inner components pass does the group component return true.
 
-#### 6.4.5 Capture Groups
+#### 6.4.5 Capturing Groups
 
-It is worth mentioning that the processor can not only match and return the `(start, end)` position of the entire matched characters, but also supports extracting the parts of the matched characters you are interested in — this is called capture groups. For example, the regex `(\d{4})-(\d{2})-(\d{2})` matches a date string like "2026-06-23" and contains three capture groups used to extract the year, month, and day from the matched string. And the processor will return a list of tuple:
+It is worth mentioning that the processor can not only match and return the `(start, end)` position of the entire matched characters, but also supports extracting the parts of the matched characters you are interested in — this is called capturing groups. For example, the regex `(\d{4})-(\d{2})-(\d{2})` matches a date string like "2026-06-23" and contains three capturing groups used to extract the year, month, and day from the matched string. And the processor will return a list of tuple:
 
 ```diagram
 [
     (0, 10),    // the whole matched string "2026-06-23"
-    (0, 4),     // the first capture group "2026"
-    (5, 7),     // the second capture group "06"
-    (8, 10),    // the third capture group "23"
+    (0, 4),     // the first capturing group "2026"
+    (5, 7),     // the second capturing group "06"
+    (8, 10),    // the third capturing group "23"
 ]
 ```
 
-In practice, the processor always returns a list of tuples even when there are no capture groups in the regex; the first tuple is always the position of the overall matched result.
+In practice, the processor always returns a list of tuples even when there are no capturing groups in the regex; the first tuple is always the position of the overall matched result.
 
 > If an engine supports functions like `find_all` or `match_all` to find all matches in the source string, the engine returns a list of lists of tuples.
 
-To support capture groups, the processor's context object holds "capture group slots" — a list of tuples, where each tuple stores the start and end position of a capture group. The processor updates these slots when it executes a capture group component, and the final result is read from these slots.
+To support capturing groups, the processor's context object holds "capturing group slots" — a list of tuples, where each tuple stores the start and end position of a capturing group. The processor updates these slots when it executes a capturing group component, and the final result is read from these slots.
 
-The structure of the capture group component is:
+The structure of the capturing group component is:
 
 ```diagram
   /-------------------------------------------------\
@@ -1316,9 +1330,9 @@ The structure of the capture group component is:
   \---------------- capture component---------------/
 ```
 
-Each capture group component has a group index and an optional name. The `capture start transition` marks the start position of the capture group, and the `capture end transition` marks the end position. The processor updates the "capture group slots" when it runs these two transitions.
+Each capturing group component has a group index and an optional name. The `capture start transition` marks the start position of the capturing group, and the `capture end transition` marks the end position. The processor updates the "capturing group slots" when it runs these two transitions.
 
-In general, the compiler generates a capture group component for the whole regex, thus the first capture group slot is used to store the position of the overall matched characters. The structure of program component is:
+In general, the compiler generates a capturing group component for the whole regex, thus the first capturing group slot is used to store the position of the overall matched characters. The structure of program component is:
 
 ```diagram
   /---------------------------------------------------------\
@@ -1336,7 +1350,7 @@ In general, the compiler generates a capture group component for the whole regex
 
 #### 6.4.6 Back-references
 
-Back-references are used to match the same characters as a previously matched capture group. For example, the regex `(\w+)-\1` matches a string containing two identical words separated by a hyphen, such as "hello-hello". Here `\1` is a back-reference to the first capture group, meaning it matches the same characters that the first capture group captured.
+Back-references are used to match the same characters as a previously matched capturing group. For example, the regex `(\w+)-\1` matches a string containing two identical words separated by a hyphen, such as "hello-hello". Here `\1` is a back-reference to the first capturing group, meaning it matches the same characters that the first capturing group captured.
 
 The structure of the back-reference component is:
 
@@ -1351,7 +1365,7 @@ The structure of the back-reference component is:
   \-- back-reference component -/
 ```
 
-The back-reference transition read the specified capture group slot to get the start and end position of the previously matched characters, then it checks if the current characters in the source string are the same as the previously matched characters. The pseudo code of the back-reference transition is like this:
+The back-reference transition read the specified capturing group slot to get the start and end position of the previously matched characters, then it checks if the current characters in the source string are the same as the previously matched characters. The pseudo code of the back-reference transition is like this:
 
 ```diagram
 fn run(context) -> bool {

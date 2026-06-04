@@ -38,9 +38,6 @@ pub enum Expression {
      */
     FunctionCall(Box<FunctionCall>),
 
-    IndexCapture(Box<Expression>),
-    NameCapture(String, Box<Expression>),
-
     /**
      * Represents a disjunction (logical OR) between two expressions.
      * For example, `a|b` matches either 'a' or 'b'.
@@ -58,7 +55,8 @@ pub struct FunctionCall {
 #[derive(Debug, PartialEq)]
 pub enum FunctionArgument {
     Expression(Expression),
-    Number(usize),
+    Number(usize),      // repetition arguments
+    Identifier(String), // name capturing group name
 }
 
 #[derive(Debug, PartialEq)]
@@ -132,7 +130,7 @@ pub enum FunctionName {
     ZeroOrMore,  // `zero_or_more(expression)->expression`
     Repeat,      // `repeat(expression, n)->expression`, n >= 0
     RepeatFrom,  // `repeat_from(expression, n)->expression`, n >= 0
-    RepeatRange, // `repeat_range(expression, m, n)->expression`, m >= 0, n >= m (internally, function `repeat` is used if m == n)
+    RepeatRange, // `repeat_range(expression, m, n)->expression`, m >= 0, n >= m
 
     // Lazy Quantifier
     LazyOptional,    // `lazy_optional(expression)->expression`
@@ -140,7 +138,7 @@ pub enum FunctionName {
     LazyZeroOrMore,  // `lazy_zero_or_more(expression)->expression`
     LazyRepeat,      // `lazy_repeat(expression, n)->expression`, n >= 0
     LazyRepeatFrom,  // `lazy_repeat_from(expression, n)->expression`, n >= 0
-    LazyRepeatRange, // `lazy_repeat_range(expression, m, n)->expression`, m >= 0, n >= m (error is occurred if m == n)
+    LazyRepeatRange, // `lazy_repeat_range(expression, m, n)->expression`, m >= 0, n >= m
 
     // Note that `LazyRepeat` is semantically equivalent to `Repeat`
     // because the laziness of a fixed repetition has no effect.
@@ -165,18 +163,50 @@ pub enum FunctionName {
     //   impossible for 'c' to precede 'a' and for 'b' to precede 'c' at the same time.
 
     // `is_before(expression, next_expression)->expression`
-    // lookahead `A(?=B)`: `is_before(A, B)` or `A.is_before(B)`
+    //
+    // lookahead assertion:
+    // - `A(?=B)`
+    // - `is_before(A, B)`
+    // - `A.is_before(B)`
     IsBefore,
 
     // `is_not_before(expression, next_expression)->expression`
-    // negative lookahead `A(?!B)`: `is_not_before(A, B)` or `A.is_not_before(B)`
+    //
+    // negative lookahead assertion:
+    // - `A(?!B)`
+    // - `is_not_before(A, B)`
+    // - `A.is_not_before(B)`
     IsNotBefore,
 
     // `is_after(expression, previous_expression)->expression`
-    // lookbehind `(?<=B)A`: `is_after(A, B)` or `A.is_after(B)`
+    //
+    // lookbehind assertion:
+    // - `(?<=B)A`
+    // - `is_after(A, B)`
+    // - `A.is_after(B)`
     IsAfter,
 
     // `is_not_after(expression, previous_expression)->expression`
-    // negative lookbehind `(?<!B)A`: `is_not_after(A, B)` or `A.is_not_after(B)`
+    //
+    // negative lookbehind assertion:
+    // - `(?<!B)A`
+    // - `is_not_after(A, B)`
+    // - `A.is_not_after(B)`
     IsNotAfter,
+
+    // `index(expression)->expression`
+    //
+    // indexed capturing group:
+    // - `(\w+)`
+    // - `index(char_word+)`
+    // - `char_word+.index()`
+    Index,
+
+    // `name(expression, NAME)->expression`
+    //
+    // name capturing group:
+    // - `(?<foo>\w+)`
+    // - `name(char_word+, foo)`
+    // - `char_word+.name(foo)`
+    Name,
 }

@@ -142,7 +142,7 @@ impl Parser<'_> {
         // expression || expression
         // ```
 
-        let mut left = self.parse_implicit_group_expression()?;
+        let mut left = self.parse_consequent_expression()?;
 
         // In the traditional regular expressions, "groups" are implied
         // on both sides of the "logic or" operator ("|").
@@ -173,8 +173,8 @@ impl Parser<'_> {
             //
             // Call `parse_expression` for right-to-left associative parsing, for example:
             // `let right = self.parse_expression()?;`
-            // Or call `parse_named_capture` for left-to-right associative parsing, for example:
-            // `let right = self.parse_named_capture()?;`
+            // Or call `parse_consequent_expression` for left-to-right associative parsing, for example:
+            // `let right = self.parse_consequent_expression()?;`
             //
             // currently right-associative is adopted for efficiency.
 
@@ -186,7 +186,7 @@ impl Parser<'_> {
         Ok(left)
     }
 
-    fn parse_implicit_group_expression(&mut self) -> Result<Expression, AnreError> {
+    fn parse_consequent_expression(&mut self) -> Result<Expression, AnreError> {
         // ```diagram
         // token ...
         // -----
@@ -195,7 +195,7 @@ impl Parser<'_> {
         // ```
 
         // In the traditional regular expressions, consecutive expressions
-        // are implicitly grouped together,
+        // are implicit groups.
         //
         // For example:
         //
@@ -294,7 +294,7 @@ impl Parser<'_> {
         //
         // "match 'a' only if it's followed by 'b'"
 
-        let mut expression = self.parse_quantifier()?;
+        let mut expression = self.parse_notation()?;
 
         if let Some(token @ (Token::LookAheadGroupStart | Token::LookAheadNegativeGroupStart)) =
             self.peek_token(0)
@@ -321,7 +321,7 @@ impl Parser<'_> {
         Ok(expression)
     }
 
-    fn parse_quantifier(&mut self) -> Result<Expression, AnreError> {
+    fn parse_notation(&mut self) -> Result<Expression, AnreError> {
         // ```diagram
         // expression [ "?" | "+" | "*" | "{N}" | "{N,}" | "{N,M}" ]
         // expression [ "??" | "+?" | "*?" | "{N}?" | "{N,}?" | "{N,M}?" ]
@@ -336,6 +336,8 @@ impl Parser<'_> {
                 | Token::LazyOneOrMore
                 | Token::ZeroOrMore
                 | Token::LazyZeroOrMore => {
+                    // quantifier, for example: `foo?`, `foo+`, `foo*`, `foo??`, `foo+?`, `foo*?`, etc.
+
                     let name = match token {
                         // Greedy quantifier
                         Token::Optional => FunctionName::Optional,
@@ -357,6 +359,8 @@ impl Parser<'_> {
                     self.next_token(); // consume notation
                 }
                 Token::Repetition(repetition, lazy) => {
+                    // repetition, for example `foo{3}`, `foo{3,}`, `foo{3,5}`, `foo{3}?`, `foo{3,}?`, `foo{3,5}?`, etc.
+
                     let mut args = vec![];
                     args.push(FunctionArgument::Expression(expression));
 
@@ -382,23 +386,24 @@ impl Parser<'_> {
                         Repetition::RepeatRange(m, n) => {
                             // `{m..m}` is equivalent to a fixed repetition, so it reuses
                             // the same AST form as `{m}`.
-                            if m == n {
-                                args.push(FunctionArgument::Number(*n));
+                            if m > n {
+                                let range = self.peek_range(0).unwrap();
+                                return Err(AnreError::MessageWithRange(
+                                    format!(
+                                        "Invalid repetition range: {{{},{}}}. The start of the range must be less than or equal to the end.",
+                                        m, n
+                                    ),
+                                    *range,
+                                ));
+                            }
 
-                                if *lazy {
-                                    FunctionName::LazyRepeat
-                                } else {
-                                    FunctionName::Repeat
-                                }
+                            args.push(FunctionArgument::Number(*m));
+                            args.push(FunctionArgument::Number(*n));
+
+                            if *lazy {
+                                FunctionName::LazyRepeatRange
                             } else {
-                                args.push(FunctionArgument::Number(*m));
-                                args.push(FunctionArgument::Number(*n));
-
-                                if *lazy {
-                                    FunctionName::LazyRepeatRange
-                                } else {
-                                    FunctionName::RepeatRange
-                                }
+                                FunctionName::RepeatRange
                             }
                         }
                     };
@@ -424,7 +429,7 @@ impl Parser<'_> {
         // - line assertion
         // - boundary assertion
         // - look around assertion
-        // - (explicit) group
+        // - explicit group
         // - back reference
         let expression = match self.peek_token(0).unwrap() {
             Token::LineBoundaryAssertionStart => {
@@ -495,7 +500,11 @@ impl Parser<'_> {
                 let expression = self.parse_expression()?;
                 self.consume_closing_parenthese()?; // consume ")"
 
-                Expression::IndexCapture(Box::new(expression))
+                let function_call = FunctionCall {
+                    name: FunctionName::Index,
+                    args: vec![FunctionArgument::Expression(expression)],
+                };
+                Expression::FunctionCall(Box::new(function_call))
             }
             Token::NonCaptureGroupStart => {
                 // non-capturing group
@@ -514,7 +523,14 @@ impl Parser<'_> {
                 let expression = self.parse_expression()?;
                 self.consume_closing_parenthese()?; // consume ")"
 
-                Expression::NameCapture(name, Box::new(expression))
+                let function_call = FunctionCall {
+                    name: FunctionName::Name,
+                    args: vec![
+                        FunctionArgument::Expression(expression),
+                        FunctionArgument::Identifier(name),
+                    ],
+                };
+                Expression::FunctionCall(Box::new(function_call))
             }
             Token::BackReferenceNumber(index_ref) => {
                 let index = *index_ref;
@@ -650,8 +666,13 @@ impl TryFrom<char> for PresetCharSetName {
 mod tests {
     use pretty_assertions::assert_eq;
 
-    use crate::ast::{
-        CharRange, CharSet, CharSetElement, Expression, Literal, PresetCharSetName, Program,
+    use crate::{
+        ast::{
+            CharRange, CharSet, CharSetElement, Expression, Literal, PresetCharSetName, Program,
+        },
+        error::AnreError,
+        position::Position,
+        range::Range,
     };
 
     use super::parse_from_str;
@@ -754,7 +775,10 @@ mod tests {
             parse_from_str(r#"a?b+c*x??y+?z*?"#,).unwrap().to_string(),
             r#"(optional('a'), one_or_more('b'), zero_or_more('c'), lazy_optional('x'), lazy_one_or_more('y'), lazy_zero_or_more('z'))"#
         );
+    }
 
+    #[test]
+    fn test_parse_repetition() {
         assert_eq!(
             parse_from_str(r#"a{3}b{5,7}c{11,}x{3}?y{5,7}?z{11,}?"#,)
                 .unwrap()
@@ -762,10 +786,31 @@ mod tests {
             r#"(repeat('a', 3), repeat_range('b', 5, 7), repeat_from('c', 11), lazy_repeat('x', 3), lazy_repeat_range('y', 5, 7), lazy_repeat_from('z', 11))"#
         );
 
+        // Special case: zero repetition and range with the same start and end
         assert_eq!(
-            parse_from_str(r#"a{3,3}x{3,3}?"#,).unwrap().to_string(),
-            r#"(repeat('a', 3), lazy_repeat('x', 3))"#
+            parse_from_str(r#"a{0}b{3,3}c{5,5}?"#,).unwrap().to_string(),
+            r#"(repeat('a', 0), repeat_range('b', 3, 3), lazy_repeat_range('c', 5, 5))"#
         );
+
+        // err: invalid repetition range, `{m,n}` is invalid if m > n
+        assert!(matches!(
+            parse_from_str(r#"a{5,3}"#,),
+            Err(AnreError::MessageWithRange(
+                _,
+                Range {
+                    start: Position {
+                        index: 1,
+                        line: 0,
+                        column: 1
+                    },
+                    end_inclusive: Position {
+                        index: 5,
+                        line: 0,
+                        column: 5
+                    }
+                }
+            ))
+        ));
     }
 
     #[test]
@@ -787,16 +832,36 @@ mod tests {
     #[test]
     fn test_parse_index_capture_and_backreference() {
         assert_eq!(
+            parse_from_str(r#"(a)"#,).unwrap().to_string(),
+            r#"index('a')"#
+        );
+
+        assert_eq!(
+            parse_from_str(r#"(a\d)"#,).unwrap().to_string(),
+            r#"index(('a', char_digit))"#
+        );
+
+        assert_eq!(
             parse_from_str(r#"(\d+)\.\1"#,).unwrap().to_string(),
-            r#"(#one_or_more(char_digit), '.', ^1)"#
+            r#"(index(one_or_more(char_digit)), '.', ^1)"#
         );
     }
 
     #[test]
     fn test_parse_name_capture_and_backreference() {
         assert_eq!(
+            parse_from_str(r#"(?<x>a)"#,).unwrap().to_string(),
+            r#"name('a', x)"#
+        );
+
+        assert_eq!(
+            parse_from_str(r#"(?<x>a\d)"#,).unwrap().to_string(),
+            r#"name(('a', char_digit), x)"#
+        );
+
+        assert_eq!(
             parse_from_str(r#"(?<a>\d)x\k<a>"#,).unwrap().to_string(),
-            r#"(char_digit as a, 'x', a)"#
+            r#"(name(char_digit, a), 'x', a)"#
         );
     }
 
@@ -838,6 +903,7 @@ mod tests {
             assert_eq!(program.to_string(), r#"'a' || ('b' || 'c')"#);
         }
 
+        // expression as operand
         assert_eq!(
             parse_from_str(r#"\d+|[\w-]+"#,).unwrap().to_string(),
             r#"one_or_more(char_digit) || one_or_more([char_word, '-'])"#
@@ -846,13 +912,13 @@ mod tests {
         // group + logic or
         assert_eq!(
             parse_from_str(r#"(a|b)|c"#,).unwrap().to_string(),
-            r#"#('a' || 'b') || 'c'"#
+            r#"index('a' || 'b') || 'c'"#
         );
 
         // group + logic or + group
         assert_eq!(
             parse_from_str(r#"(a\w)|(b\d)"#,).unwrap().to_string(),
-            r#"#('a', char_word) || #('b', char_digit)"#
+            r#"index(('a', char_word)) || index(('b', char_digit))"#
         );
 
         // string + logic or
@@ -860,25 +926,12 @@ mod tests {
             parse_from_str(r#"ab|cd"#,).unwrap().to_string(),
             r#""ab" || "cd""#
         );
-
-        // expressions as operands
-        assert_eq!(
-            parse_from_str(r#"\d+|[\w-]+"#,).unwrap().to_string(),
-            r#"one_or_more(char_digit) || one_or_more([char_word, '-'])"#
-        );
     }
 
     #[test]
     fn test_parse_group() {
-        // groups are index captured by default
-        assert_eq!(
-            parse_from_str(r#"(foo\d)(b(bar\d))$"#,)
-                .unwrap()
-                .to_string(),
-            r#"(#("foo", char_digit), #('b', #("bar", char_digit)), is_end())"#
-        );
+        // groups are indexed capturing groups by default
 
-        // non-capturing
         assert_eq!(
             parse_from_str(r#"(?:foo\d)(?:b(?:bar\d))$"#,)
                 .unwrap()
@@ -886,7 +939,7 @@ mod tests {
             r#"(("foo", char_digit), ('b', ("bar", char_digit)), is_end())"#
         );
 
-        // function call + group
+        // nested groups
         assert_eq!(
             parse_from_str(r#"(?:foo\d){3}(?:b(?:bar){5})$"#,)
                 .unwrap()
@@ -894,21 +947,63 @@ mod tests {
             r#"(repeat(("foo", char_digit), 3), ('b', repeat("bar", 5)), is_end())"#
         );
 
-        // non-capturing group + logic `or`
-        assert_eq!(
-            parse_from_str(r#"a|(?:b|c)"#,).unwrap().to_string(),
-            r#"'a' || ('b' || 'c')"#
-        );
-
-        assert_eq!(
-            parse_from_str(r#"(?:a|b)|c"#,).unwrap().to_string(),
-            r#"('a' || 'b') || 'c'"#
-        );
-
-        // extract elements from the top group
+        // escape nested groups
         assert_eq!(
             parse_from_str(r#"(?:(?:a\db))"#,).unwrap().to_string(),
             r#"('a', char_digit, 'b')"#
+        );
+    }
+
+    #[test]
+    fn test_parse_operate_on_group() {
+        // Quantifier on group
+        assert_eq!(
+            parse_from_str(r#"a(?:b)?(?:x\d)?"#,).unwrap().to_string(),
+            r#"('a', optional('b'), optional(('x', char_digit)))"#
+        );
+
+        // Repetition on group
+        assert_eq!(
+            parse_from_str(r#"a(?:b){3,5}(?:x\d){7,11}"#,)
+                .unwrap()
+                .to_string(),
+            r#"('a', repeat_range('b', 3, 5), repeat_range(('x', char_digit), 7, 11))"#
+        );
+
+        // Quantifier on indexed capturing group
+        assert_eq!(
+            parse_from_str(r#"a(b?)((?:x\d)?)"#,).unwrap().to_string(),
+            r#"('a', index(optional('b')), index(optional(('x', char_digit))))"#
+        );
+
+        // Repetition on indexed capturing group
+        assert_eq!(
+            parse_from_str(r#"a(b{3,5})((?:x\d){7,11})"#,)
+                .unwrap()
+                .to_string(),
+            r#"('a', index(repeat_range('b', 3, 5)), index(repeat_range(('x', char_digit), 7, 11)))"#
+        );
+
+        // Quantifier on named capturing group
+        assert_eq!(
+            parse_from_str(r#"a(?<foo>b)?(?<bar>x\d)?"#,)
+                .unwrap()
+                .to_string(),
+            r#"('a', optional(name('b', foo)), optional(name(('x', char_digit), bar)))"#
+        );
+
+        // Repetition on named capturing group
+        assert_eq!(
+            parse_from_str(r#"a(?<foo>b){3,5}(?<bar>x\d){7,11}"#,)
+                .unwrap()
+                .to_string(),
+            r#"('a', repeat_range(name('b', foo), 3, 5), repeat_range(name(('x', char_digit), bar), 7, 11))"#
+        );
+
+        // Precedence of group and quantifier
+        assert_eq!(
+            parse_from_str(r#"(x)?(y?)"#,).unwrap().to_string(),
+            r#"(optional(index('x')), index(optional('y')))"#
         );
     }
 
@@ -953,9 +1048,9 @@ mod tests {
                 .to_string(),
             "(is_start(), \
 one_or_more([char_word, '.', '-']), \
-optional(#('+', one_or_more([char_word, '-']))), \
+optional(index(('+', one_or_more([char_word, '-'])))), \
 '@', \
-one_or_more(#(one_or_more(['a'..'z', 'A'..'Z', '0'..'9', '-']), '.')), \
+one_or_more(index((one_or_more(['a'..'z', 'A'..'Z', '0'..'9', '-']), '.'))), \
 repeat_from(['a'..'z'], 2), \
 is_end())"
         );
@@ -966,13 +1061,13 @@ is_end())"
         .unwrap()
         .to_string();
 
-        let part_str = r#"#(("25", ['0'..'5']) || (('2', ['0'..'4'], char_digit) || (('1', char_digit, char_digit) || ((['1'..'9'], char_digit) || char_digit))))"#;
-        let expected_ipv4_regex = format!(
-            "(is_start(), repeat(#({}, '.'), 3), {}, is_end())",
-            part_str, part_str
+        let expected_part_str = r#"index(("25", ['0'..'5']) || (('2', ['0'..'4'], char_digit) || (('1', char_digit, char_digit) || ((['1'..'9'], char_digit) || char_digit))))"#;
+        let expected_str = format!(
+            "(is_start(), repeat(index(({}, '.')), 3), {}, is_end())",
+            expected_part_str, expected_part_str
         );
 
-        assert_eq!(ipv4_regex, expected_ipv4_regex);
+        assert_eq!(ipv4_regex, expected_str);
 
         assert_eq!(
             parse_from_str(r#"<(?<tag_name>\w+)(\s\w+(="\w+")?)*>.+?</\k<tag_name>>"#,)
@@ -980,8 +1075,8 @@ is_end())"
                 .to_string(),
             "(\
 '<', \
-one_or_more(char_word) as tag_name, \
-zero_or_more(#(char_space, one_or_more(char_word), optional(#(\"=\\\"\", one_or_more(char_word), '\\\"')))), \
+name(one_or_more(char_word), tag_name), \
+zero_or_more(index((char_space, one_or_more(char_word), optional(index((\"=\\\"\", one_or_more(char_word), '\\\"')))))), \
 '>', \
 lazy_one_or_more(char_any), \
 \"</\", tag_name, '>'\
