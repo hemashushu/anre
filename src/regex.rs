@@ -1616,6 +1616,27 @@ mod tests {
     fn test_process_backreference() {
         for re in build(
             r#"
+            (char_digit as n, n)"#, // ANRE
+            r#"(?<n>\d)\k<n>"#, // traditional
+        ) {
+            let text = "11 22";
+            let mut matches = re.captures_iter(text);
+
+            assert_eq!(
+                matches.next(),
+                Some(new_captures(&[(0, 2, None, "11"), (0, 1, Some("n"), "1")]))
+            );
+
+            assert_eq!(
+                matches.next(),
+                Some(new_captures(&[(3, 5, None, "22"), (3, 4, Some("n"), "2")]))
+            );
+
+            assert_eq!(matches.next(), None);
+        }
+
+        for re in build(
+            r#"
             (
                 ('<', char_word+ as tag_name, '>'),
                 char_any+,

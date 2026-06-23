@@ -251,7 +251,7 @@ impl Transition {
 
                 let routine = context.get_current_routine_ref();
 
-                if cursor + length_in_byte >= routine.range_end {
+                if cursor + length_in_byte > routine.range_end {
                     ExecuteResult::Failure
                 } else {
                     let mut all_byte_matched = true;
