@@ -101,7 +101,7 @@ Alternatively, you can manually add it to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-regex-anre = "2.1.0"
+regex-anre = "2.1"
 ```
 
 The following demonstrates the three typical use cases of regular expressions.

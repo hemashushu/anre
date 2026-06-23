@@ -20,7 +20,7 @@ dependencies = [
 
 [[package]]
 name = "regex-anre"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "pretty_assertions",
 ]
