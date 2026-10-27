@@ -1,6 +1,6 @@
 Copyright (c) 2025-2026 Hemashushu <hippospark@gmail.com>
 
-ASON (this software, including its source code, documentation, and accompanying
+Regex ANRE (this software, including its source code, documentation, and accompanying
 files) is licensed under the Mozilla Public License 2.0 ("MPL-2.0", see the
 LICENSE file) together with the Additional Terms below. By using, modifying,
 or distributing this software, you agree to both.
@@ -39,7 +39,7 @@ company, or organization:
 2. No rebranding. Do not republish this software, or a version with only
    trivial changes (such as renaming, rebranding, or simple wrapping), under
    a different name. If you distribute a substantially modified version under
-   a new name, you must clearly state that it is derived from ASON and provide
+   a new name, you must clearly state that it is derived from Regex ANRE and provide
    a link to the original project.
 3. No intellectual property claims. Do not use this software, in whole or in
    part, to apply for or register any patent, copyright (including software
@@ -51,7 +51,7 @@ company, or organization:
 5. Copyright retained. Making the source code public does not mean giving up
    copyright. The author retains all copyrights in this software.
 6. Attribution. When you use or include this software, you must credit the
-   author (copyright holder) and the name "ASON" in a place where users can
+   author (copyright holder) and the name "Regex ANRE" in a place where users can
    easily see it, such as the "About" page of an application or the README file.
 7. Contributions. The copyright of contributions to this software belongs to
    the author (copyright holder), as described in the CONTRIBUTING file.
@@ -76,7 +76,7 @@ the developer intended.
 
 版权所有 (c) 2025-2026 河马蜀黍 (Hemashushu) <hippospark@gmail.com>
 
-ASON（即本软件，包括源代码、文档及附带文件）依据 Mozilla Public License 2.0
+Regex ANRE（即本软件，包括源代码、文档及附带文件）依据 Mozilla Public License 2.0
 （以下简称“MPL-2.0”，见 LICENSE 文件）及下列附加条款授权。使用、修改或分发本软件，
 即表示你同意遵守以上两者。
 
@@ -107,7 +107,7 @@ MPL-2.0 简明说明
 
 1. 保留声明：不得删除或修改本软件（包括源代码、文档及附带文件）中的任何许可协议和版权声明。
 2. 禁止换名发布：不得将本软件，或仅做了简单改动（如改名、更换标识、简单封装）的版本，
-   以其他名称重新发布。如果以新名称发布经过实质性修改的版本，必须明确注明其源自 ASON，
+   以其他名称重新发布。如果以新名称发布经过实质性修改的版本，必须明确注明其源自 Regex ANRE，
    并提供原项目的链接。
 3. 禁止申请知识产权：不得使用本软件的全部或部分内容申请或登记专利、著作权（包括软件著作权登记）、
    商标或其他知识产权。
@@ -115,7 +115,7 @@ MPL-2.0 简明说明
    科研成果（如论文、学位论文、项目结题报告、评奖申报材料等）。欢迎在科研中使用并引用本软件。
 5. 保留版权：源代码公开并不意味着放弃版权，作者保留本软件的所有版权。
 6. 署名要求：使用或包含本软件时，必须在用户容易看到的位置（如应用程序的“关于”页面或
-   README 文件）注明本软件的作者（版权所有者）及软件名称“ASON”。
+   README 文件）注明本软件的作者（版权所有者）及软件名称“Regex ANRE”。
 7. 贡献者版权：对本软件所作贡献的版权归作者（版权所有者）所有，详见 CONTRIBUTING 文件。
    贡献者不享有本软件全部或部分的版权。
 8. 免责声明：本软件“按原样”公开分享。对于因使用或包含本软件而产生的任何后果（无论是否预期），

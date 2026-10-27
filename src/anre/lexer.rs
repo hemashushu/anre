@@ -1005,14 +1005,14 @@ mod tests {
         // Test ranges.
 
         assert_eq!(
-            lex_from_str("hello ASON").unwrap(),
+            lex_from_str("hello ANRE").unwrap(),
             vec![
                 TokenWithRange::new(
                     Token::new_identifier("hello"),
                     Range::from_position_and_length(&Position::new(0, 0, 0), 5)
                 ),
                 TokenWithRange::new(
-                    Token::new_identifier("ASON"),
+                    Token::new_identifier("ANRE"),
                     Range::from_position_and_length(&Position::new(6, 0, 6), 4)
                 )
             ]

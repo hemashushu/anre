@@ -1,7 +1,7 @@
 Contributing
 ============
 
-ASON was created by Hemashushu <hippospark@gmail.com>, who holds its
+Regex ANRE was created by Hemashushu <hippospark@gmail.com>, who holds its
 copyright. It is distributed under the Mozilla Public License 2.0 with
 additional terms (see the LICENSE and LICENSE.additional files), and the
 author promises that it will always remain free to use.
@@ -28,7 +28,7 @@ Contributor: John Smith <name@email_domain>
 参与贡献
 =======
 
-ASON 由河马蜀黍 <hippospark@gmail.com> 创建并享有版权。本项目采用 Mozilla Public License 2.0
+Regex ANRE 由河马蜀黍 <hippospark@gmail.com> 创建并享有版权。本项目采用 Mozilla Public License 2.0
 及附加条款（见 LICENSE 和 LICENSE.additional 文件）授权分发，作者承诺本项目将始终可以免费使用。
 
 欢迎来自社区的贡献。当你提交贡献（如代码、文档或补丁，例如通过 Pull Request 提交）时，
