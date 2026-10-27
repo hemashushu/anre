@@ -699,73 +699,171 @@ Read the compiler and processor together: each emitted transition has a correspo
 
 ## 6 Performance Optimizations
 
-The engine described so far is correct but slow. This chapter explains optimizations that make it about 25 times faster without changing its design: the compiled graph, the backtracking stack, and the undo log all stay the same.
+The engine described in the previous chapters is correct but slow. This chapter shows how to make it about 25 times faster while keeping its design: the compiled graph, the backtracking stack, and the undo log all stay the same.
+
+None of these optimizations changes *which* text matches; they only change how quickly the engine finds it. Every one of them follows the same rule:
+
+> An optimization may skip work only if we can prove that the skipped work would have failed anyway.
+
+Keep this rule in mind. For each optimization, we first look at an example of wasted work, then at the shortcut, and finally at why the shortcut can never change the result.
 
 ### 6.1 Where the Time Goes
 
-Recall how a search works: it tries the pattern at position 0, then 1, then 2, and so on, until an attempt succeeds. Every attempt runs the graph from the entry node, even when it fails at the first character. For a 2 MB text, that means about two million attempts.
+Let's watch the engine search for `cat` in the text `"the dog sat"`:
+
+```diagram
+t h e   d o g   s a t
+^                        attempt at 0: expects 'c', finds 't', fails
+  ^                      attempt at 1: expects 'c', finds 'h', fails
+    ^                    attempt at 2: expects 'c', finds 'e', fails
+      ^                  attempt at 3: expects 'c', finds ' ', fails
+        ...              ...and so on, up to the end of the text
+```
+
+The text contains no 'c' at all, yet the engine makes one attempt per position, and each attempt does more work than the diagram suggests. It has to:
+
+1. push the transitions of the entry node onto the stack,
+2. record the start of capture group 0 (the whole match),
+3. run the character transition, which fails,
+4. pop the stack and roll back the capture record.
+
+For a 2 MB text, that is about two million attempts, almost all of them hopeless.
 
 There are two ways to go faster:
 
-- Make fewer attempts, by skipping start positions that cannot possibly match.
-- Make each attempt cheaper, by reducing the work per transition.
+- **Make fewer attempts** by recognizing positions where a match cannot start. Sections 6.2 and 6.3 do this.
+- **Make each attempt cheaper** by reducing the work per step. Sections 6.4 and 6.5 do this.
 
-The first kind gives the largest gains, so we start there.
+Skipping an attempt entirely is always cheaper than running it quickly, so we start with the first.
 
 ### 6.2 Skipping Impossible Start Positions
 
-Consider the pattern `\d{4}-\d{2}-\d{2}`. Any match must begin with a digit. If the current character is a letter, there is no need to run the graph at all: the attempt is certain to fail.
-
-The compiler therefore analyzes the AST before the search begins and builds a table of 256 entries, one per byte value. An entry is true if a match may begin with that byte:
+**The idea.** Consider the date pattern `\d{4}-\d{2}-\d{2}` and the text `"Born on 2026-06-23 in Paris"`. Every match must begin with a digit, so an attempt at a letter or a space is certain to fail. Only the eight digits are worth trying:
 
 ```diagram
-pattern             bytes that may begin a match
--------------       ----------------------------
-abc                 'a'
-apple|banana        'a', 'b'
-\b[A-Z][a-z]+       'A'..'Z'   (the zero-width \b is skipped)
-[^>]                every byte except '>'
+Born on 2026-06-23 in Paris
+        ^^^^ ^^ ^^              only these 8 positions can start a match
 ```
 
-During the search, the processor scans forward to the next byte marked in the table and only starts an attempt there. Scanning a byte table is far cheaper than running the graph.
+That is 8 attempts instead of 27, and in typical English text the saving is far greater, because digits are rare.
 
-Two details keep this correct:
+**The byte table.** Before the search starts, the compiler builds a table with 256 entries, one for every possible byte value. Entry `b` is true if a match may begin with byte `b`. For the date pattern, the entries for `'0'` through `'9'` are true and all others are false. During the search, the processor scans the text, looks up each byte in the table, and starts an attempt only where the entry is true. A table lookup is a single memory read, which is much cheaper than starting an attempt.
 
-- Bytes are checked, not characters, because the input is UTF-8. A non-ASCII character is identified by its first (lead) byte. For a range such as `[一-龥]`, all lead bytes from the first to the last character are marked. This can mark a few extra bytes, which is safe: the table only needs to never miss a real start; an extra candidate simply leads to a failed attempt.
-- If the pattern might match empty text, as `a*` or `a?b` can, any position could be a match, including one before a character absent from the table. The compiler produces no table for such patterns, and the search tries every position as before.
+**Building the table.** The compiler walks the pattern's AST using a few simple rules:
 
-The analysis follows the structure of the AST: a sequence takes the first element that consumes a character, alternation takes the union of both branches, and a repetition takes its inner expression, unless it may repeat zero times. See [src/start_position_analyzer.rs](../src/start_position_analyzer.rs).
+- A literal begins with its first character: `abc` begins with `'a'`.
+- A sequence begins with its first element that consumes a character. Zero-width elements such as `\b` and `^` are skipped, because they do not consume anything: `\b[A-Z][a-z]+` begins with a character from `[A-Z]`.
+- An alternation may begin with whatever either branch begins with: `apple|banana` begins with `'a'` or `'b'`.
+- A repetition begins with whatever its inner expression begins with, provided it repeats at least once: `(?:\d{1,3}\.){3}` begins with a digit.
+- A negated set begins with any character it does not exclude: `[^>]` may begin with every byte except `'>'`.
 
-This single optimization made the benchmark about seven times faster on average.
+**When the analysis gives up.** Some patterns can match empty text. For example, `a*` matches an empty string at every position, even in `"xyz"`, where it finds an empty match at position 0. If the table said "a match must begin with `'a'`", the search would skip position 0 and miss that match. So whenever the beginning of a pattern may match nothing, as in `a*`, `a?b`, or `x{0,2}y`, the compiler builds no table at all, and the search simply tries every position as before. Giving up is always safe: it only means this optimization is not used.
 
-The table only knows the first byte, which leads to two further improvements:
+**Non-ASCII characters.** The table works on bytes, but text is UTF-8, where a character may occupy several bytes. The table only uses a character's first byte, called its lead byte:
 
-- **Checking a literal prefix.** For `class="[a-z]+"`, every `c` in the text is a candidate, though few are followed by `lass="`. When every match must begin with a fixed string, the compiler records it, and the search compares the whole prefix before running the graph.
-- **Searching eight bytes at a time.** Finding the prefix's first byte then becomes the main cost. Instead of checking one byte at a time, the search loads eight bytes into a 64-bit integer. XOR with the target byte repeated eight times turns every matching byte into zero, and the well-known expression `(x - 0x0101...01) & !x & 0x8080...80` sets the high bit of each zero byte. If the result is not zero, its lowest set bit marks the first match among the eight bytes.
+```diagram
+character   UTF-8 bytes     lead byte
+---------   -----------     ---------
+a           61              61
+文          E6 96 87        E6
+一          E4 B8 80        E4
+龥          E9 BE A5        E9
+```
+
+For the range `[一-龥]`, the compiler marks every lead byte from `E4` to `E9`. This marks a little too much: the character `䀀` (bytes `E4 80 80`) is not in the range, but its lead byte is marked. That is harmless, because an extra candidate merely leads to an attempt that fails. The table may report too many candidates, but it must never miss a real one.
+
+**Checking a literal prefix.** The byte table only knows the first byte. Consider `class="[a-z]+"` in an HTML document. Every `'c'` is a candidate, but most belong to words such as `section`, `article`, or `cherry`. Each of them would start a full attempt only to fail a few characters later.
+
+When every match must begin with a fixed string, here `class="`, the compiler records that string, and the search compares the whole prefix before starting an attempt:
+
+```diagram
+<section class="note">
+   ^      candidate 'c' in "section": "ction c" is not "class=\"", skipped
+         ^  candidate 'c' in "class": the prefix matches, start an attempt
+```
+
+Comparing seven bytes is far cheaper than running the graph.
+
+**Searching eight bytes at a time.** Once most attempts are gone, finding the next candidate byte becomes the main cost. Checking bytes one at a time is slow. A 64-bit processor can instead load eight bytes into one integer and examine all of them at once, using two bit tricks:
+
+1. XOR the eight bytes with the target byte repeated eight times. A byte equal to the target becomes zero; all other bytes stay non-zero.
+2. Compute `(x - 0x0101...01) & !x & 0x8080...80`. This well-known expression sets the high bit of every byte that is zero.
+
+Here is the same idea on four bytes, searching for `'c'` (`63`) in `"tcac"`:
+
+```diagram
+byte position          0     1     2     3
+text                  't'   'c'   'a'   'c'
+bytes (hex)            74    63    61    63
+step 1: XOR with 63    17    00    02    00
+step 2: high bits      00    80    00    80
+```
+
+The first marked byte is at position 1, the first `'c'`. If nothing is marked, none of the eight bytes matches, and the search moves on to the next eight. The trick may also mark a byte that follows a match, but never one before the first match, so the first mark is always correct.
+
+Together, the byte table, prefix check, and eight-byte search eliminate most attempts for patterns that begin with something specific.
 
 ### 6.3 Skipping Runs That Already Failed
 
-The byte table cannot help with a pattern such as `[a-z]+ing`, because almost every letter in English text may start a match. Worse, the search repeats work. In the word `"jumped"`:
+**The problem.** The byte table cannot help with `[a-z]+ing`: in English text, almost every byte is a lowercase letter and therefore a candidate. Worse, the attempts repeat each other's work. Take the word `"jumped"`, which contains no `"ing"`. `[a-z]+` is greedy, so each attempt first takes all the letters and then gives them back one at a time, checking for `"ing"` after each:
 
 ```diagram
-jumped
-^         attempt at 0: [a-z]+ takes "jumped", then gives back characters
-          one at a time, looking for "ing" after each. All fail.
- ^        attempt at 1: [a-z]+ takes "umped", then repeats the same search.
-  ^       attempt at 2: ...and so on, six attempts for one word.
+j u m p e d
+0 1 2 3 4 5 6
+
+attempt at 0: [a-z]+ takes "jumped", then checks for "ing" at 6, 5, 4, 3, 2, 1
+attempt at 1: [a-z]+ takes "umped",  then checks for "ing" at 6, 5, 4, 3, 2
+attempt at 2: [a-z]+ takes "mped",   then checks for "ing" at 6, 5, 4, 3
+...
+attempt at 5: [a-z]+ takes "d",      then checks for "ing" at 6
 ```
 
-Observe that the attempt at 1 looks for `"ing"` at positions 2 through 6, and the attempt at 0 has already looked at positions 1 through 6. Every later attempt inside the same run of letters checks a subset of what the first attempt already checked. Since the first attempt failed, they will fail too.
+Look closely: every position checked by the attempt at 1 was already checked by the attempt at 0, and the same holds for every later attempt. They cannot succeed where the first attempt failed.
 
-So, when a pattern begins with an unbounded repetition of a single character class (`S+`, `S*`, or `S{n,}`) and an attempt fails, the search jumps to the end of the run of `S` characters instead of moving forward by one. In the example, one attempt per word replaces six.
+**The shortcut.** When a pattern begins with an unbounded repetition of a single character class, such as `S+`, `S*`, or `S{n,}`, and an attempt fails, the search jumps past the whole run of `S` characters instead of moving forward by one. In `"she jumped over"`, the search makes three attempts, one per word, instead of thirteen, one per letter:
 
-This reasoning holds only when the rest of the pattern does not care where the run started. A backreference breaks that assumption: in `(a+)b\1`, the captured run is required again later, so starting inside the run gives a shorter capture and a different result. The compiler disables this optimization for any pattern containing a backreference. It also requires the repetition to be the very first element; with a leading assertion such as `\b[a-z]+`, the later start positions would not be covered by the first attempt.
+```diagram
+she jumped over
+^              attempt at 0 fails, skip to the end of "she"
+    ^          attempt at 4 fails, skip to the end of "jumped"
+           ^   attempt at 11 fails, skip to the end of "over"
+```
+
+**Why it is safe.** After the run, the rest of the pattern sees only where the run ends, never where it began. Starting later inside the run can only end it at positions that were already tried.
+
+**When it is not safe.** Two kinds of patterns break this argument, and the compiler excludes both:
+
+- **Backreferences** make the rest of the pattern depend on where the run began. With `(a+)b\1` and the text `"aaaba"`:
+
+  ```diagram
+  a a a b a
+  0 1 2 3 4
+
+  attempt at 0: (a+) captures "aaa", then needs "b" and "aaa": fails
+                (shorter captures "aa" and "a" are not followed by "b")
+  attempt at 1: (a+) captures "aa",  then needs "b" and "aa":  fails
+  attempt at 2: (a+) captures "a",   then needs "b" and "a":   matches "aba"
+  ```
+
+  Skipping from position 0 to the end of the run would miss the match at position 2. Therefore, any pattern containing a backreference does not use this shortcut.
+
+- **Something before the run**, such as a lookbehind, may fail at the first position but succeed at a later one. With `(?<=x)[a-z]+ing` and the text `"axbing"`, the attempt at 0 fails because no `'x'` precedes it, but the attempt at 2 matches `"bing"`. Therefore, the repetition must be the very first element of the pattern.
 
 ### 6.4 Matching a Run of Characters in One Step
 
-The repetition component in section 4.2 is general: its inner component can be anything, including groups, captures, and other repetitions. That generality has a price. For `[a-z]+`, every additional letter costs four transitions (a jump into the inner component, the character set, the counter increment, and the repetition back transition), plus saved alternatives and undo-log entries.
+**The problem.** The repetition component in section 4.2 is general: its inner component can be anything, including a group with captures or another repetition. That generality has a price. Here is what the component does for each letter that `[a-z]+` consumes:
 
-Yet the most common repetitions repeat a single character: `\d{4}`, `[a-z]+`, `.*`. For a greedy repetition of a single character, the compiler emits one char run transition instead of the whole loop:
+```diagram
+for every letter:
+    jump into the inner component
+    run the character set transition       <- the only step that does real work
+    increment the counter                  (and record the change in the undo log)
+    run the repetition back transition     (and save the forward transition as an alternative)
+```
+
+That is four transitions, plus stack and undo-log entries, to consume one character. Yet most repetitions in practice repeat a single character: `\d{4}`, `[a-z]+`, `.*`.
+
+**The shortcut.** For a greedy repetition of a single character, the compiler emits one char run transition instead of the whole loop:
 
 ```diagram
   /-----------------------------\
@@ -778,35 +876,39 @@ Yet the most common repetitions repeat a single character: `\d{4}`, `[a-z]+`, `.
   \----- char run component ----/
 ```
 
-The char run consumes matching characters in a tight loop, up to the maximum count, and continues with the longest run. Backtracking must still be able to give characters back one at a time, so once the count reaches the minimum, the char run saves "continue from here" as a pending alternative before consuming each further character. Consider `[a-z]+ing` matching `"running"`:
+The char run consumes matching characters in a simple loop, up to the maximum count. Once it has reached the minimum count, it saves the current position as an alternative ("the run could also stop here") before consuming each further character. It then continues with the longest run. If the rest of the pattern fails, backtracking pops the saved positions one by one, giving back one character at a time, exactly like the general component.
+
+Here is `[a-z]+ing` matching `"running"`:
 
 ```diagram
 r u n n i n g
 0 1 2 3 4 5 6 7
 
-the char run consumes all 7 letters and saves alternatives at 1, 2, 3, 4, 5, 6
-continue at 7: "ing" fails
-pop 6:         "ing" fails
-pop 5:         "ing" fails
+the char run consumes all 7 letters and saves positions 1, 2, 3, 4, 5, 6
+continue at 7: "ing" fails (end of text)
+pop 6:         "ing" fails ("g")
+pop 5:         "ing" fails ("ng")
 pop 4:         "ing" matches, the result is (0, 7)
 ```
 
-The alternatives are tried longest first, exactly as with the general component, so both produce the same matches. The specialization is safe because a single character contains no captures or nested counters that would need restoring.
+For `\d{4}`, the minimum and maximum are both four, so the char run consumes exactly four digits and saves no alternatives, because there is nothing to give back.
 
-Lazy repetitions keep the general component. They try the shortest run first and extend it one character at a time, which a char run could only do by rescanning from the start for every extension.
+**Why it is safe.** The saved positions are tried longest first, the same order in which the general component gives characters back, so both produce exactly the same matches. A single character contains no captures, counters, or nested alternatives, so there is no other state to restore.
+
+**Why lazy repetitions are excluded.** A lazy repetition such as `[a-z]+?` tries the shortest run first and extends it one character at a time. A char run would have to rescan the run from the beginning for every extension, so lazy repetitions keep the general component.
 
 ### 6.5 Making Each Step Cheaper
 
-The remaining optimizations reduce the cost of individual steps without changing what they do:
+The remaining optimizations do not skip attempts. Instead, they make common steps cheaper:
 
-- **Nodes with one path skip the stack.** A node with several outgoing transitions is a choice point and must save its alternatives for backtracking. A node with only one transition has nothing to come back to, so the processor runs that transition directly instead of pushing it onto the stack and immediately popping it again.
-- **Strings are compared as bytes.** Two UTF-8 strings are equal exactly when their bytes are equal, so a string literal is compared with one slice comparison instead of decoding each character.
-- **Character sets precompute ASCII membership.** Checking `[A-Za-z0-9._%+-]` means testing several ranges. The compiler answers that question in advance for all 128 ASCII characters and stores the answers in a table; only non-ASCII characters still check the ranges.
-- **Transition stacks are reused.** Every search and every lookaround evaluation used to allocate a new stack and grow it while pushing alternatives. The context now keeps emptied stacks and hands them out again.
+- **Nodes with one path skip the stack.** A node with several outgoing transitions is a choice point: before trying the first, the processor must save the others for backtracking. Most nodes, however, have only one outgoing transition. In `\d{4}-\d{2}-\d{2}`, for example, the nodes simply lead from one part to the next. Pushing such a transition onto the stack only to pop it again immediately is wasted work, so the processor runs it directly.
+- **Strings are compared as bytes.** To match the literal `class="`, the original engine decoded each UTF-8 character of the text and compared it with the expected character. Two UTF-8 strings are equal exactly when their bytes are equal, so a single comparison of seven bytes now suffices.
+- **Character sets precompute ASCII membership.** Checking whether a character belongs to `[A-Za-z0-9._%+-]` means testing three ranges and five single characters. The compiler answers this question in advance for all 128 ASCII characters and stores the answers in a table, so checking an ASCII character takes a single lookup. Only non-ASCII characters, such as `'é'`, still check the ranges.
+- **Transition stacks are reused.** Every search used to allocate a new stack, grow it while saving alternatives, and free it afterward. When an iterator finds 25,000 matches, that means 25,000 allocations. The context now keeps emptied stacks and hands them out again, much like reusing a shopping bag instead of taking a new one each time.
 
 ### 6.6 Measuring the Results
 
-Optimizations should be measured, not guessed. The [benchmark](../benchmark/src/main.rs) crate runs fifteen patterns over generated English, HTML, and Unicode text in the `examples` directory, and compares this engine with the widely used [`regex`](https://crates.io/crates/regex) crate. Before timing anything, it checks that both engines report the same matches, so the benchmark also serves as a correctness test.
+Optimizations must be measured, not guessed: an idea that seems clever may not help at all, and a dull one may help a lot. The [benchmark](../benchmark/src/main.rs) crate runs fifteen patterns over generated English, HTML, and Unicode text in the `examples` directory, and compares this engine with the widely used [`regex`](https://crates.io/crates/regex) crate. Before timing anything, it checks that both engines report the same matches, so the benchmark also guards against optimizations that change results.
 
 ```bash
 cd benchmark
@@ -826,9 +928,28 @@ The following table shows how much slower this engine is than `regex` after each
 | Literal prefixes, eight-byte search, and stack reuse | 9.6x |
 | Char runs | 5.3x |
 
-Together, these optimizations made the engine about 25 times faster, though the gap to `regex` still varies widely:
+Some individual cases, measured on one machine (your numbers will differ, but the proportions should be similar):
 
-- When matches are short and frequent, as with capitalized words, HTML tags, or runs of Chinese characters, this engine is now about as fast as `regex`, sometimes slightly faster.
-- The gap remains large for alternations of several words, for literal-heavy patterns, and above all for patterns like email addresses that backtrack inside every word. There, the `regex` crate relies on techniques outside the scope of this book, such as SIMD substring search and finite automata, which never backtrack.
+| Case | Pattern | Before (ms) | After (ms) | `regex` (ms) |
+|------|---------|-------------|------------|--------------|
+| literal | `pattern` | 22.3 | 0.30 | 0.06 |
+| date | `\d{4}-\d{2}-\d{2}` | 49.7 | 1.35 | 0.07 |
+| capital-word | `\b[A-Z][a-z]+\b` | 35.8 | 1.89 | 2.77 |
+| html-tag | `<([a-z]+)[^>]*>` | 19.5 | 3.30 | 2.97 |
+| cjk-run | `[一-龥]+` | 14.2 | 2.13 | 2.42 |
+| alternation | `apple\|banana\|cherry` | 72.9 | 7.24 | 0.30 |
+| email | `[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}` | 257.5 | 23.6 | 0.11 |
+
+Together, these optimizations made the engine about 25 times faster. The gap to `regex` still varies widely:
+
+- When matches are short and frequent, as with capitalized words, HTML tags, or runs of Chinese characters, this engine is now about as fast as `regex`, and sometimes faster.
+- The gap remains large for alternations of several words, for literal searches, and above all for patterns like email addresses, where the engine starts an attempt at almost every word. In these cases, the `regex` crate relies on techniques beyond the scope of this book, such as SIMD substring search and finite automata, which never backtrack.
 
 In exchange, this engine still compiles patterns faster than `regex`, and its design remains small enough to read and understand from start to finish.
+
+To summarize the lessons of this chapter:
+
+1. **Measure first.** Find out where the time goes before changing anything.
+2. **Skip work before speeding it up.** Not starting a hopeless attempt beats running it quickly.
+3. **Prove every shortcut safe.** Each optimization must leave the results unchanged, and it must be disabled for the patterns where that proof does not hold.
+4. **Test against a reference.** Comparing results with another engine catches mistakes that reasoning alone may miss.
