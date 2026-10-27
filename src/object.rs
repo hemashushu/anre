@@ -41,6 +41,9 @@ pub struct Map {
     // Bytes that can begin a match, used to skip hopeless start positions.
     pub first_bytes: Option<[bool; 256]>,
 
+    // A literal every match must start with, checked before running the graph.
+    pub literal_prefix: Option<Vec<u8>>,
+
     // The character matcher of a leading `S+`-like repetition, used to skip
     // start positions inside a run that already failed to match.
     pub leading_run: Option<Transition>,
@@ -91,6 +94,7 @@ impl Map {
             capture_groups: vec![],
             repetition_counter_count: 0,
             first_bytes: None,
+            literal_prefix: None,
             leading_run: None,
         }
     }

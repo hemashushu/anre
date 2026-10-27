@@ -18,6 +18,8 @@ pub struct Context<'a> {
     pub iteration_start_slots: Vec<usize>,
     // Previous slot values allow backtracking to restore earlier states.
     pub undo_log: Vec<UndoEntry>,
+    // Emptied transition stacks kept for reuse, avoiding an allocation per routine.
+    pub spare_stacks: Vec<Vec<TransitionStackItem>>,
 }
 
 /// A previous slot value recorded for backtracking.
@@ -39,12 +41,17 @@ pub struct Routine {
 }
 
 impl Routine {
-    pub fn new(range_start: usize, range_end: usize, route_index: usize) -> Routine {
+    pub fn new(
+        range_start: usize,
+        range_end: usize,
+        route_index: usize,
+        transition_stack: Vec<TransitionStackItem>,
+    ) -> Routine {
         Routine {
             range_start,
             range_end,
             route_index,
-            transition_stack: vec![],
+            transition_stack,
         }
     }
 }
@@ -117,6 +124,8 @@ impl<'a> Context<'a> {
             matched_slots: vec![None; number_of_capture_groups],
 
             undo_log: vec![],
+
+            spare_stacks: vec![],
         }
     }
 

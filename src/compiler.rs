@@ -10,7 +10,7 @@ use crate::{
         FunctionCall, FunctionName, Literal, PresetCharSetName, Program,
     },
     error::AnreError,
-    start_position_analyzer::{calculate_first_bytes, find_leading_run},
+    start_position_analyzer::{calculate_first_bytes, find_leading_run, find_literal_prefix},
     match_length_calculator::{MatchLength, calculate_match_length},
     object::{Component, Map, Route},
     transition::{
@@ -134,6 +134,8 @@ impl<'a> Compiler<'a> {
         route.is_fixed_cursor_begin_position = is_fixed_cursor_begin_position;
 
         self.map.first_bytes = calculate_first_bytes(&program.expression);
+        self.map.literal_prefix =
+            find_literal_prefix(&program.expression).map(|prefix| prefix.into_bytes());
         self.map.leading_run = match find_leading_run(&program.expression) {
             Some(literal) => Some(literal_transition(literal)?),
             None => None,

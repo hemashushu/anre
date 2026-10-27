@@ -34,23 +34,20 @@ pub fn start_routine(
     let mut cursor = start_position;
 
     // Add a routine for the route to the context.
-    let routine = Routine::new(start_position, end_position, route_index);
+    let transition_stack = context.spare_stacks.pop().unwrap_or_default();
+    let routine = Routine::new(start_position, end_position, route_index, transition_stack);
     context.routines.push(routine);
 
     let is_fixed = map.routes[route_index].is_fixed_cursor_begin_position;
     let is_main_search = route_index == MAIN_ROUTE_INDEX && !is_fixed;
-    let first_bytes = map.first_bytes.as_ref().filter(|_| is_main_search);
     let leading_run = map.leading_run.as_ref().filter(|_| is_main_search);
 
     // Include the end position because zero-width patterns may match there.
     loop {
-        // Skip positions whose byte cannot begin a match.
-        if let Some(table) = first_bytes {
-            match context.bytes[cursor..end_position]
-                .iter()
-                .position(|byte| table[*byte as usize])
-            {
-                Some(offset) => cursor += offset,
+        // Skip positions where no match can begin.
+        if is_main_search {
+            match next_candidate(context.bytes, map, cursor, end_position) {
+                Some(candidate) => cursor = candidate,
                 None => break,
             }
         }
@@ -82,8 +79,57 @@ pub fn start_routine(
     }
 
     // Remove the routine for the route from the context.
-    context.routines.pop();
+    let mut transition_stack = context.routines.pop().unwrap().transition_stack;
+    transition_stack.clear();
+    context.spare_stacks.push(transition_stack);
     result
+}
+
+/// Returns the first position at or after `cursor` where a match may begin,
+/// or `None` if no match is possible in the rest of the text.
+fn next_candidate(bytes: &[u8], map: &Map, mut cursor: usize, end: usize) -> Option<usize> {
+    if let Some(prefix) = &map.literal_prefix {
+        // Find the prefix's first byte quickly, then compare the whole prefix.
+        loop {
+            cursor += find_byte(&bytes[cursor..end], prefix[0])?;
+            if bytes[cursor..end].starts_with(prefix) {
+                return Some(cursor);
+            }
+            // `prefix[0]` never equals a UTF-8 continuation byte, so the next hit is a character boundary.
+            cursor += 1;
+        }
+    }
+
+    match &map.first_bytes {
+        Some(table) => bytes[cursor..end]
+            .iter()
+            .position(|byte| table[*byte as usize])
+            .map(|offset| cursor + offset),
+        None => Some(cursor),
+    }
+}
+
+/// Finds `target` by checking eight bytes at a time.
+fn find_byte(haystack: &[u8], target: u8) -> Option<usize> {
+    const ONES: u64 = 0x0101_0101_0101_0101;
+    const HIGHS: u64 = 0x8080_8080_8080_8080;
+    let pattern = ONES * target as u64;
+
+    let (chunks, remainder) = haystack.as_chunks::<8>();
+    for (index, chunk) in chunks.iter().enumerate() {
+        // Bytes equal to `target` become zero; the classic zero-byte test then sets their high bit.
+        let word = u64::from_le_bytes(*chunk) ^ pattern;
+        let zero_bytes = word.wrapping_sub(ONES) & !word & HIGHS;
+        if zero_bytes != 0 {
+            return Some(index * 8 + zero_bytes.trailing_zeros() as usize / 8);
+        }
+    }
+
+    let offset = chunks.len() * 8;
+    remainder
+        .iter()
+        .position(|byte| *byte == target)
+        .map(|position| offset + position)
 }
 
 /// Tries paths from `cursor` until one reaches the exit node or all alternatives fail.
@@ -446,4 +492,24 @@ pub enum ExecuteResult {
         usize, // The latest repetition count
     ),
     Failure, // Indicates that the transition failed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_byte;
+
+    #[test]
+    fn test_find_byte() {
+        let text: Vec<u8> = (0..40).collect();
+        for target in 0..40 {
+            assert_eq!(find_byte(&text, target), Some(target as usize));
+            assert_eq!(find_byte(&text[3..], target), (target as usize).checked_sub(3));
+        }
+        assert_eq!(find_byte(&text, 200), None);
+        assert_eq!(find_byte(b"", b'a'), None);
+
+        // Only the first occurrence counts, even when several share a chunk.
+        assert_eq!(find_byte(b"xxaxaxxxaa", b'a'), Some(2));
+        assert_eq!(find_byte(&[0x80, 0x01, 0x81, 0x01], 0x01), Some(1));
+    }
 }

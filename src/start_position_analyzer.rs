@@ -26,6 +26,35 @@ pub fn find_leading_run(exp: &Expression) -> Option<&Literal> {
     leading_run(exp)
 }
 
+/// Finds a literal that every match must begin with, such as `class=` in `class="[a-z]+"`.
+pub fn find_literal_prefix(exp: &Expression) -> Option<String> {
+    match exp {
+        Expression::Literal(Literal::String(s)) if !s.is_empty() => Some(s.clone()),
+        Expression::Literal(Literal::Char(c)) => Some(c.to_string()),
+        Expression::Group(exps) => {
+            // Zero-width boundary assertions do not change where the consumed text begins.
+            let first = exps.iter().find(|exp| !is_boundary_assertion(exp))?;
+            find_literal_prefix(first)
+        }
+        Expression::FunctionCall(function_call)
+            if matches!(function_call.name, FunctionName::Index | FunctionName::Name) =>
+        {
+            match &function_call.args[0] {
+                FunctionArgument::Expression(inner) => find_literal_prefix(inner),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn is_boundary_assertion(exp: &Expression) -> bool {
+    matches!(exp, Expression::FunctionCall(function_call) if matches!(
+        function_call.name,
+        FunctionName::IsStart | FunctionName::IsEnd | FunctionName::IsBound | FunctionName::IsNotBound
+    ))
+}
+
 fn leading_run(exp: &Expression) -> Option<&Literal> {
     match exp {
         Expression::Group(exps) => exps.first().and_then(leading_run),
@@ -255,7 +284,7 @@ fn lead_byte(c: char) -> u8 {
 mod tests {
     use crate::{anre, traditional};
 
-    use super::{calculate_first_bytes, find_leading_run};
+    use super::{calculate_first_bytes, find_leading_run, find_literal_prefix};
 
     fn first_bytes_of(regex: &str) -> Option<Vec<u8>> {
         let program = traditional::parse_from_str(regex).unwrap();
@@ -289,6 +318,24 @@ mod tests {
 
         let program = anre::parse_from_str("\"\"").unwrap();
         assert!(calculate_first_bytes(&program.expression).is_none());
+    }
+
+    #[test]
+    fn test_literal_prefix() {
+        let prefix_of = |regex: &str| {
+            let program = traditional::parse_from_str(regex).unwrap();
+            find_literal_prefix(&program.expression)
+        };
+
+        assert_eq!(prefix_of("abc"), Some("abc".to_owned()));
+        assert_eq!(prefix_of(r#"class="[a-z]+""#), Some("class=\"".to_owned()));
+        assert_eq!(prefix_of(r"\bfoo\d"), Some("foo".to_owned()));
+        assert_eq!(prefix_of("(ab)c"), Some("ab".to_owned()));
+        assert_eq!(prefix_of("#[0-9]"), Some("#".to_owned()));
+
+        for regex in ["a|b", "a?b", "[ab]c", "(?<=a)b", "a+b"] {
+            assert_eq!(prefix_of(regex), None, "{}", regex);
+        }
     }
 
     #[test]
