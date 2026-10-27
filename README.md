@@ -4,9 +4,9 @@
 
 [![Crates.io](https://img.shields.io/crates/v/regex-anre.svg)](https://crates.io/crates/regex-anre) [![Documentation](https://docs.rs/regex-anre/badge.svg)](https://docs.rs/regex-anre) [![License](https://img.shields.io/crates/l/regex-anre.svg)](https://github.com/hemashushu/regex-anre)
 
-[Regex-anre](https://github.com/hemashushu/regex-anre) is a full-featured, zero-dependency regular expression engine that supports both standard and ANRE regular expressions.
+[Regex-anre](https://github.com/hemashushu/regex-anre) is a full-featured, zero-dependency regular expression engine that supports both traditional regular expressions and the ANRE language.
 
-Regex-anre provides the same API as the [Rust standard regular expression library "Rust-regex"](https://docs.rs/regex/), allowing it to be a drop-in replacement without any code changes.
+Regex-anre provides the core API of [Rust-regex](https://docs.rs/regex/) (the widely used `regex` crate), so common usage can switch over by changing only the crate name and import path.
 
 <!-- @import "[TOC]" {cmd="toc" depthFrom=2 depthTo=4 orderedList=false} -->
 
@@ -23,11 +23,11 @@ Regex-anre provides the same API as the [Rust standard regular expression librar
     - [3.2.1 Greedy quantifiers](#321-greedy-quantifiers)
     - [3.2.2 Lazy quantifiers](#322-lazy-quantifiers)
   - [3.3 Assertions](#33-assertions)
-    - [3.3.1 Boundary Assertions](#331-boundary-assertions)
-    - [3.3.2 Lookaround Assertions](#332-lookaround-assertions)
+    - [3.3.1 Boundary assertions](#331-boundary-assertions)
+    - [3.3.2 Lookaround assertions](#332-lookaround-assertions)
   - [3.4 Groups](#34-groups)
-    - [3.4.1 Sequence](#341-sequence)
-    - [3.4.2 Capture and Backreferences](#342-capture-and-backreferences)
+    - [3.4.1 Sequences](#341-sequences)
+    - [3.4.2 Captures and backreferences](#342-captures-and-backreferences)
   - [3.5 Logical Operators](#35-logical-operators)
 - [4. The ANRE Language](#4-the-anre-language)
   - [4.1 Literals](#41-literals)
@@ -55,9 +55,9 @@ Regex-anre provides the same API as the [Rust standard regular expression librar
   - [5.3 Email Address Validation](#53-email-address-validation)
   - [5.4 IPv4 Address Validation](#54-ipv4-address-validation)
   - [5.5 Matching Simple HTML Tags](#55-matching-simple-html-tags)
-- [6 Learn More](#6-learn-more)
-- [7 Linking](#7-linking)
-- [8 License](#8-license)
+- [6. Learn More](#6-learn-more)
+- [7. Links](#7-links)
+- [8. License](#8-license)
 
 <!-- /code_chunk_output -->
 
@@ -65,42 +65,42 @@ Regex-anre provides the same API as the [Rust standard regular expression librar
 
 - **Lightweight**: Regex-anre is built from scratch without any dependencies, making it extremely lightweight — its compiled binary is roughly one-tenth the size of the Rust-regex library.
 
-- **Full-featured**: Regex-anre supports all general regular expression features, in addition to backreferences, look-ahead assertions, and look-behind assertions, which are not supported in the Rust-regex library.
+- **Full-featured**: Regex-anre supports all common regular expression features, plus backreferences and lookahead/lookbehind assertions, which Rust-regex does not support.
 
-- **Maintainable**: Regex-anre is designed to be easy to maintain, with a clean and modular code structure. The code is easy to read and understand, and most importantly, it is well-documented.
+- **Maintainable**: Regex-anre has a clean, modular code structure that is easy to read and understand, and, most importantly, it is well documented.
 
-- **Reasonable performance**: Regex-anre is about 3 to 5 times slower than Rust-regex in text matching, but it is still reasonably fast. Moreover, Regex-anre compiles patterns far faster than Rust-regex, making it well-suited for dynamic pattern creation.
+- **Reasonable performance**: Regex-anre matches text about 3 to 5 times slower than Rust-regex, which is still reasonably fast. In return, it compiles patterns much faster than Rust-regex, making it well suited to patterns created at runtime.
 
-- **New language support**: ANRE is a functional language designed to be easy to read and write. It can be translated one-to-one into traditional regular expressions and vice versa. They can even be mixed together, reducing the cognitive overhead of writing complex regular expressions.
+- **A new language**: ANRE is a function-based language designed to be easy to read and write. Every ANRE expression can be translated one-to-one into a traditional regular expression and vice versa, which reduces the cognitive load of writing complex patterns.
 
-- **Compatibility**: Regex-anre provides the same API as the Rust-regex library, allowing you to directly replace the Rust-regex library in your project without any code changes.
+- **Compatibility**: Regex-anre implements the core API of Rust-regex (`Regex::new`, `find`, `find_iter`, `captures`, `captures_iter`, `is_match`, etc.), so in most projects you only need to change the crate name and import path. Note that some methods, such as `replace` and `split`, are not provided.
 
 ## 2. Quick Start
 
-Add the crate [regex_anre](https://crates.io/crates/regex-anre) to your project via the command line:
+Add the crate [regex-anre](https://crates.io/crates/regex-anre) to your project from the command line:
 
 ```bash
 cargo add regex-anre
 ```
 
-Alternatively, you can manually add it to your `Cargo.toml` file:
+Or add it to your `Cargo.toml` manually:
 
 ```toml
 [dependencies]
 regex-anre = "2.1"
 ```
 
-The following demonstrates the three typical use cases of regular expressions.
+The following examples demonstrate three typical uses of regular expressions.
 
 ### 2.1 Find a specific pattern in a string
 
 ```rust
 use regex_anre::Regex;
 
-// Using traditional regex to find hexadecimal color codes
+// Find hexadecimal color codes with a traditional regex
 let re = Regex::new(r"#[\da-fA-F]{6}").unwrap();
 
-// Using ANRE language
+// The same pattern in ANRE
 let re = Regex::from_anre("('#', [char_digit, 'a'..'f', 'A'..'F'].repeat(6))").unwrap();
 
 let text = "The color is #ffbb33 and the background is #bbdd99.";
@@ -113,8 +113,7 @@ if let Some(m) = re.find(text) {
 }
 
 // Find all matches
-let matches: Vec<_> = re.find_iter(text).collect();
-for m in matches {
+for m in re.find_iter(text) {
     println!("Found match: {}", m.as_str());
 }
 ```
@@ -124,28 +123,28 @@ for m in matches {
 ```rust
 use regex_anre::Regex;
 
-// Using traditional regex to capture RGB components from hexadecimal color codes
+// Capture the RGB components of hexadecimal color codes with a traditional regex
 let re =
     Regex::new(r"#(?<red>[\da-fA-F]{2})(?<green>[\da-fA-F]{2})(?<blue>[\da-fA-F]{2})").unwrap();
 
-// Using ANRE language
+// The same pattern in ANRE
 let re = Regex::from_anre(
     "
-    /* ANRE supports comments, multiline and macro definitions,
-     * which can make the regular expression more readable and maintainable.
+    /* ANRE supports comments, multi-line layout, and macros,
+     * which make patterns easier to read and maintain.
      */
 
     (
-        // Define a charset for hexadecimal digits with a macro `hex`
+        // A macro `hex` for a single hexadecimal digit
         define hex ([char_digit, 'a'..'f', 'A'..'F'])
 
-        // Define a macro `two_hex` for two hexadecimal digits
-        define two_hex hex.repeat(2)
+        // A macro `two_hex` for two hexadecimal digits
+        define two_hex (hex.repeat(2))
 
-        // Hexadecimal color code starts with a character `#`
+        // A hexadecimal color code starts with `#`
         '#'
 
-        // Capture groups for red, green, and blue components
+        // Named capturing groups for the red, green, and blue components
         two_hex as red
         two_hex as green
         two_hex as blue
@@ -154,7 +153,7 @@ let re = Regex::from_anre(
 
 let text = "The color is #ffbb33 and the background is #bbdd99.";
 
-// Find one match and print capturing groups
+// Find the first match and print its capturing groups
 if let Some(m) = re.captures(text) {
     println!("Found match: {}", m.get(0).unwrap().as_str());
     println!("Red: {}", m.name("red").unwrap().as_str());
@@ -164,9 +163,8 @@ if let Some(m) = re.captures(text) {
     println!("No match found");
 }
 
-// Find all matches and print capturing groups
-let matches: Vec<_> = re.captures_iter(text).collect();
-for m in matches {
+// Find all matches and print their capturing groups
+for m in re.captures_iter(text) {
     println!("Found match: {}", m.get(0).unwrap().as_str());
     println!("Red: {}", m.name("red").unwrap().as_str());
     println!("Green: {}", m.name("green").unwrap().as_str());
@@ -179,15 +177,15 @@ for m in matches {
 ```rust
 use regex_anre::Regex;
 
-// Using a traditional regex to validate a date string in the format `YYYY-MM-DD`
+// Validate a date string in the format `YYYY-MM-DD` with a traditional regex
 let re = Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
 
-// Using ANRE language
+// The same pattern in ANRE
 let re = Regex::from_anre(
     "
-    /* Validate a date string in the format `YYYY-MM-DD`
-     * The `is_start()` and `is_end()` functions are string start and end assertions,
-     * which ensure that the entire string matches the pattern.
+    /* Validate a date string in the format `YYYY-MM-DD`.
+     * `is_start()` and `is_end()` assert the start and end of the string,
+     * ensuring that the entire string matches the pattern.
      */
 
     (
@@ -198,16 +196,16 @@ let re = Regex::from_anre(
         '-'
         char_digit.repeat(2)
         is_end()
-    )",
+    )"
 ).unwrap();
 
-println!("{}", re.is_match("2025-04-22")); // Expected: true
-println!("{}", re.is_match("04-22")); // Expected: false
+println!("{}", re.is_match("2025-04-22")); // true
+println!("{}", re.is_match("04-22")); // false
 ```
 
 ## 3. Regular Expression Cheatsheet
 
-The following table summarizes the patterns of regular expressions and the corresponding ANRE expressions.
+The following tables list common regular expression patterns and their ANRE equivalents.
 
 ### 3.1 Literals
 
@@ -221,12 +219,12 @@ The following table summarizes the patterns of regular expressions and the corre
 | `[^abc]`      | `!['a', 'b', 'c']`        | Match any character not in the set                     |
 | `\d`          | `char_digit`              | Match any digit character (0-9)                        |
 | `\D`          | `char_not_digit`          | Match any non-digit character                          |
-| `\w`          | `char_word`               | Match any word character (alphanumeric or underscore)  |
+| `\w`          | `char_word`               | Match any ASCII word character (`[A-Za-z0-9_]`)        |
 | `\W`          | `char_not_word`           | Match any non-word character                           |
-| `\s`          | `char_space`              | Match any whitespace character (space, tab, newline)   |
+| `\s`          | `char_space`              | Match any whitespace character (space, `\t`, `\r`, `\n`) |
 | `\S`          | `char_not_space`          | Match any non-whitespace character                     |
-| `[a-f\d]`     | `['a'..'f', char_digit]`  | Match any character in the set (combine ranges and predefined character classes) |
-| `.`           | `char_any`                | Match any character except newline                     |
+| `[a-f\d]`     | `['a'..'f', char_digit]`  | Match any character in the set (ranges and predefined classes can be combined) |
+| `.`           | `char_any`                | Match any character except `\n` and `\r`               |
 
 ### 3.2 Repetition
 
@@ -239,11 +237,11 @@ The following table summarizes the patterns of regular expressions and the corre
 | `a*`          | `'a'*`                    | Match zero or more occurrences of 'a'            |
 | `a{n}`        | `'a'{n}`                  | Match exactly n occurrences of 'a', n >= 0       |
 | `a{n,}`       | `'a'{n..}`                | Match at least n occurrences of 'a', n >= 0      |
-| `a{m,n}`      | `'a'{m..n}`               | Match between m and n occurrences of 'a', n >= m |
+| `a{m,n}`      | `'a'{m..n}`               | Match between m and n occurrences of 'a' (inclusive), n >= m |
 
 #### 3.2.2 Lazy quantifiers
 
-Lazy quantifiers match as few characters as possible while still satisfying the condition. They are denoted by a `?` after the greedy quantifier. For example, `a??` will match zero or one occurrence of 'a', but it will prefer to match zero occurrences if possible.
+Lazy quantifiers match as few characters as possible while still allowing the overall match to succeed. They are written by appending `?` to a greedy quantifier. For example, `a??` matches zero or one 'a', but prefers zero.
 
 | Regex Pattern | ANRE Expression           | Description                                      |
 |---------------|---------------------------|--------------------------------------------------|
@@ -252,13 +250,13 @@ Lazy quantifiers match as few characters as possible while still satisfying the 
 | `a*?`         | `'a'*?`                   | Match zero or more occurrences of 'a'            |
 | `a{n}?`       | `'a'{n}?`                 | Identical to `'a'{n}`, n >= 0                    |
 | `a{n,}?`      | `'a'{n..}?`               | Match at least n occurrences of 'a', n >= 0      |
-| `a{m,n}?`     | `'a'{m..n}?`              | Match between m and n occurrences of 'a', n >= m |
+| `a{m,n}?`     | `'a'{m..n}?`              | Match between m and n occurrences of 'a' (inclusive), n >= m |
 
-Note that there is no effect for `a{n}?` because it matches exactly n occurrences, so there is no room for laziness.
+Note that `a{n}?` behaves exactly like `a{n}`: a fixed count leaves no room for laziness.
 
 ### 3.3 Assertions
 
-#### 3.3.1 Boundary Assertions
+#### 3.3.1 Boundary assertions
 
 | Regex Pattern  | ANRE Expression          | Description                         |
 |----------------|--------------------------|-------------------------------------|
@@ -267,7 +265,7 @@ Note that there is no effect for `a{n}?` because it matches exactly n occurrence
 | `\b`           | `is_bound()`             | Match a word boundary               |
 | `\B`           | `is_not_bound()`         | Match a non-word boundary           |
 
-#### 3.3.2 Lookaround Assertions
+#### 3.3.2 Lookaround assertions
 
 | Regex Pattern  | ANRE Expression          | Description                         |
 |----------------|--------------------------|-------------------------------------|
@@ -278,20 +276,20 @@ Note that there is no effect for `a{n}?` because it matches exactly n occurrence
 
 ### 3.4 Groups
 
-#### 3.4.1 Sequence
+#### 3.4.1 Sequences
 
 | Regex Pattern  | ANRE Expression          | Description                         |
 |----------------|--------------------------|-------------------------------------|
 | `abc\d+`       | `("abc", char_digit+)`   | Sequence of patterns or expressions |
 | `(?:abc\d+)`   | `("abc", char_digit+)`   | Non-capturing group                 |
 
-#### 3.4.2 Capture and Backreferences
+#### 3.4.2 Captures and backreferences
 
 | Regex Pattern  | ANRE Expression          | Description                         |
 |----------------|--------------------------|-------------------------------------|
-| `(abc)`        | `#("abc")`               | Indexed capturing group               |
+| `(abc)`        | `#("abc")`               | Indexed capturing group             |
 | `\1`           | `^1`                     | Indexed backreference               |
-| `(?<name>abc)` | `"abc" as name`          | Named capturing group                 |
+| `(?<name>abc)` | `"abc" as name`          | Named capturing group               |
 | `\k<name>`     | `name`                   | Named backreference                 |
 
 ### 3.5 Logical Operators
@@ -299,36 +297,41 @@ Note that there is no effect for `a{n}?` because it matches exactly n occurrence
 | Regex Pattern  | ANRE Expression                   | Description                |
 |----------------|-----------------------------------|----------------------------|
 | `a\|b`         | `'a' \|\| 'b'`                    | Logical OR (alternation)   |
-| `(a\|b)c`      | `('a' \|\| 'b', 'c')`             | Sequence with alternation  |
+| `(?:a\|b)c`    | `('a' \|\| 'b', 'c')`             | Sequence with alternation  |
 | `abc\d+\|foo`  | `("abc", char_digit+) \|\| "foo"` | Alternation with sequences |
 
 ## 4. The ANRE Language
 
-The ANRE language is a functional language designed to be easy to read and write. It can be translated one-to-one into traditional regular expressions and vice versa.
+ANRE is a function-based language designed to be easy to read and write. Every ANRE expression can be translated one-to-one into a traditional regular expression and vice versa.
 
-The ANRE language is quite simple, it is composed of literals, functions, group operator, a logical `OR` operator, and identifiers.
+The language is simple. It consists of literals, functions, groups, a logical `OR` operator, a few prefix operators, and identifiers:
 
-- Literals represent the basic building blocks of regular expressions, such as characters, strings, and character sets. They are all called _expressions_ in ANRE.
-- Functions represent the operations that can be performed on expressions, such as repetition. They take one or more expressions and numbers as parameters and return a _new expression_. There are also some functions that have no parameters, such as boundary assertions.
-- Group operators allow us to group expressions together to form more complex patterns. Note that the group operator is mandatory if there are more than one expression at the root level.
-- Logical operators allow us to combine expressions using logical `OR`.
-- Identifiers are used to define macros and capturing groups. They can be used as expressions after they are defined.
+- **Literals** are the basic building blocks: characters, strings, and character sets.
+- **Functions** operate on expressions, for example to repeat them. Most take an expression (and sometimes numbers) and return a new expression; a few, such as the boundary assertions, take no arguments.
+- **Groups** join several expressions into one. A group is required whenever there is more than one expression at the root level.
+- **The logical operator** `||` combines expressions as alternatives.
+- **Prefix operators**: `!` negates a character set, `#` creates an indexed capturing group, and `^` refers back to an indexed group.
+- **Identifiers** name macros and capturing groups (`as name`). Once defined, they can be used like expressions.
+
+Everything that matches text, from a single character to a whole group, is called an _expression_.
 
 ### 4.1 Literals
 
-Literals are the basic expressions in ANRE. They can be characters, strings, or character sets.
+Literals are the most basic expressions in ANRE: characters, strings, and character sets.
 
 #### 4.1.1 Characters
 
-A character literal is a single character that is matched exactly. Character literals are surrounded by single quotes. Character literals can be any Unicode character, including letters, digits, symbols, and even emojis.
+A character literal matches exactly one character. It is enclosed in single quotes and can be any single Unicode code point, including letters, digits, symbols, and emojis.
 
 For example:
 
 - `'a'`
 - `'文'`
-- `'❤️'`
+- `'😊'`
 
-Character literals also support escape sequences, which allow us to represent special characters that cannot be typed directly. The following table lists the common escape sequences:
+> A character literal must contain exactly one code point. Some emojis, such as `❤️` (U+2764 U+FE0F), consist of several code points; write them as string literals instead.
+
+Character literals also support escape sequences for characters that are hard to type directly:
 
 | Escape Sequence | Character         | Description                         |
 |-----------------|-------------------|-------------------------------------|
@@ -341,11 +344,11 @@ Character literals also support escape sequences, which allow us to represent sp
 | `\0`            | Null character    | Null character                      |
 | `\u{X}`         | Unicode character | Unicode character with code point X |
 
-Where `X` is hexadecimal digits `(0-9, a-f, A-F)` and the valid range for `X` is from `0` to `10FFFF`, excluding the surrogate range `D800` to `DFFF`.
+Here `X` is a hexadecimal number (digits `0-9`, `a-f`, `A-F`) in the range `0` to `10FFFF`, excluding the surrogate range `D800` to `DFFF`.
 
 #### 4.1.2 Strings
 
-A string literal is a sequence of characters that is matched exactly. String literals are surrounded by double quotes. String literals can contain any characters, including escape sequences.
+A string literal matches an exact sequence of characters. It is enclosed in double quotes and can contain any characters, including escape sequences.
 
 For example:
 
@@ -356,7 +359,7 @@ For example:
 
 #### 4.1.3 Character Sets
 
-A character set is a set of characters that can be matched. Character sets are represented as a list of characters and ranges surrounded by square brackets. A character set can contain individual characters, ranges of characters.
+A character set matches any single character that belongs to it. It is written as a comma-separated list of characters and character ranges enclosed in square brackets. Ranges include both endpoints.
 
 For example:
 
@@ -366,7 +369,7 @@ For example:
 
 ##### 4.1.3.1 Negated Character Sets
 
-A negated character set matches any character that is not in the set. Negated character sets are represented by prefixing the character set with an exclamation mark `!`.
+A negated character set matches any character that is not in the set. It is written by prefixing a character set with an exclamation mark `!`.
 
 For example:
 
@@ -374,13 +377,11 @@ For example:
 - `!['a'..'z']`: matches any character that is not a lowercase letter.
 - `!['0'..'9', 'a'..'z', '-']`: matches any character that is not a digit, lowercase letter, or hyphen.
 
-For a given source string `"abc123-xyz"`, the character set `['a'..'z']` will match the characters 'a', 'b', 'c', 'x', 'y', and 'z', while the negated character set `!['a'..'z']` will match the characters '1', '2', '3', and '-'.
+For the source string `"abc123-xyz"`, the character set `['a'..'z']` matches the characters 'a', 'b', 'c', 'x', 'y', and 'z', while the negated set `!['a'..'z']` matches '1', '2', '3', and '-'.
 
 ##### 4.1.3.2 Nested Character Sets
 
-Character sets can be nested to create more complex expressions.
-
-The following demonstrates a nested character set:
+Character sets can be nested to build more complex sets, for example:
 
 ```anre
 [
@@ -390,85 +391,86 @@ The following demonstrates a nested character set:
 ]
 ```
 
-> ANRE expresses can be written in multiple lines, which can make the expressions more readable and maintainable.
+> ANRE expressions can span multiple lines, which makes them easier to read and maintain.
 
 This character set combines three character sets:
 
 - one for letters (both lowercase and uppercase)
 - one for digits
-- one for punctuations.
+- one for punctuation characters
 
-It is equivalent to `['a'..'z', 'A'..'Z', '0'..'9', '+', '-', '_']` but is more readable and maintainable.
+It is equivalent to `['a'..'z', 'A'..'Z', '0'..'9', '+', '-', '_']`, but easier to read and maintain.
 
-Note that negated character sets are not allowed to be nested, for example, `[!['0'..'9']]` is not valid expression.
+Note that negated character sets cannot be nested; for example, `[!['0'..'9']]` is not a valid expression.
 
 ##### 4.1.3.3 Predefined Character Classes
 
-ANRE also provides some predefined character classes for common sets of characters. These character classes are represented as identifiers. The following table lists the predefined character classes:
+ANRE also provides predefined character classes for common sets of characters. They are written as identifiers:
 
 | Character Class  | Description                                             |
 |------------------|---------------------------------------------------------|
 | `char_digit`     | Matches any digit character (0-9)                       |
 | `char_not_digit` | Matches any non-digit character                         |
-| `char_word`      | Matches any word character (alphanumeric or underscore) |
+| `char_word`      | Matches any ASCII word character (`[A-Za-z0-9_]`)       |
 | `char_not_word`  | Matches any non-word character                          |
-| `char_space`     | Matches any whitespace character (space, tab, newline)  |
+| `char_space`     | Matches any whitespace character (space, `\t`, `\r`, `\n`) |
 | `char_not_space` | Matches any non-whitespace character                    |
+| `char_any`       | Matches any character except `\n` and `\r`               |
 
-Predefined character classes can be also included in character sets, for example:
+Predefined character classes can also be used inside character sets, for example:
 
 `[char_word, '+', '-', '_']`
 
-But negated predefined character classes are not allowed to be included in character sets, for example, `[!char_digit]` is not valid expression.
+However, the negated classes (`char_not_digit`, `char_not_word`, and `char_not_space`) cannot be used inside character sets; for example, `['a', char_not_digit]` is not a valid expression.
 
 ### 4.2 Functions
 
-ANRE provides functions to represent repetition and assertion operations.
+ANRE uses functions to express repetition, assertions, and captures.
 
 For example:
 
 `repeat('a', 3)`
 
-This is a function with name `repeat` that takes an expression (a character literal 'a') and a number 3 as parameters, this function represents exactly three occurrences of 'a', it is equivalent to the regex `a{3}`.
+This calls the function `repeat` with two arguments: the expression `'a'` and the number 3. It matches exactly three 'a's and is equivalent to the regex `a{3}`.
 
-A function takes arguments and return values, the typical function signature is:
+Most functions take an expression (plus optional extra arguments) and return a new expression:
 
 `function_name(expression, args...) -> expression`
 
-Not all functions have parameters and return values, for example, `is_start()` is a function that takes no parameters and returns `void` that represents the start of the string, it is equivalent to the regex `^`.
+Some functions take no arguments. For example, `is_start()` asserts the start of the string and is equivalent to the regex `^`.
 
 #### 4.2.1 Nested Invocations
 
-If a function returns an expression, and another function takes an expression as a parameter, we can nest the function invocations together to create more complex expressions.
+Because functions take and return expressions, calls can be nested to build more complex expressions.
 
 For example:
 
 `optional(repeat('a', 3))`
 
-This is a function invocation where the `optional` function takes another function invocation `repeat('a', 3)` as its parameter. This expression represents zero or one occurrence of exactly three 'a's, it is equivalent to the regex `(a{3})?`.
+Here the result of `repeat('a', 3)` is passed to `optional`. The expression matches either nothing or exactly three 'a's, and is equivalent to the regex `(?:a{3})?`.
 
 #### 4.2.2 Method-like Invocation
 
-ANRE also supports method-like invocation syntax, where a function can be invoked as a method on an expression. For example, `repeat('a', 3)` can be written as `'a'.repeat(3)`.
+ANRE also supports method-like syntax, in which the first argument is written before the function name. For example, `repeat('a', 3)` can be written as `'a'.repeat(3)`.
 
-Method-like invocation syntax:
+Syntax:
 
 `expression.function_name(args...) -> expression`
 
 #### 4.2.3 Chaining Invocations
 
-Similar to nested invocations, if a function returns an expression, and another function takes an expression as a parameter, method-like invocation can be chained together. For example, the following expressions are equivalent:
+Method-like calls can be chained, just as function calls can be nested. For example, the following expressions are equivalent:
 
 - `optional(repeat('a', 3))`
 - `'a'.repeat(3).optional()`
 
-Because method-like invocation is more concise and readable, it is recommended to use it when possible.
+Method-like syntax is more concise and readable, so it is recommended wherever possible.
 
 ### 4.3 Repetition
 
-Repetition allows us to match a pattern multiple times. As the previous section mentioned, ANRE provides functions to represent repetition, such as `repeat`, `repeat_from`, and `repeat_range`. Since these functions are commonly used, ANRE also provides notation forms for them, such as `*`, `+`, `?`, `{n}`, `{n..}`, and `{m..n}`.
+Repetition matches a pattern multiple times. As mentioned above, ANRE provides repetition functions such as `repeat`, `repeat_from`, and `repeat_range`. Because they are used so often, ANRE also provides shorthand notation for them: `?`, `+`, `*`, `{n}`, `{n..}`, and `{m..n}`.
 
-The following table lists the repetition functions and their corresponding notation format:
+The following table lists the repetition functions and their notation:
 
 | Function                  | Method                   | Notation    | Description                                         |
 |---------------------------|--------------------------|-------------|-----------------------------------------------------|
@@ -479,21 +481,21 @@ The following table lists the repetition functions and their corresponding notat
 | `repeat_from(exp, n)`     | `exp.repeat_from(n)`     | `exp{n..}`  | Match at least n occurrences of the expression      |
 | `repeat_range(exp, m, n)` | `exp.repeat_range(m, n)` | `exp{m..n}` | Match between m and n occurrences of the expression |
 
-For example, for a given source string `"aa-aaa-aaaa"`:
+For example, for the source string `"aa-aaa-aaaa"`:
 
-- `"aa".repeat(2)` will match "aa" at index 0, 3, 7, and 9.
-- `"aa".repeat_from(3)` will match "aaa" at index 3 and "aaaa" at index 7.
-- `"aa".repeat_range(1, 3)` will match "aa" at index 0, "aaa" at index 3, and "aaa" at index 7
+- `'a'.repeat(2)` matches "aa" at indices 0, 3, 7, and 9.
+- `'a'.repeat_from(3)` matches "aaa" at index 3 and "aaaa" at index 7.
+- `'a'.repeat_range(1, 3)` matches "aa" at index 0, "aaa" at index 3, "aaa" at index 7, and "a" at index 10.
 
-> `n` must be a non-negative integer (i.e., `n >= 0`), and `n` must be greater than or equal to `m` (i.e., `n >= m`), otherwise it is an invalid expression.
+> `m` and `n` must be non-negative integers, and `n` must be greater than or equal to `m`; otherwise the expression is invalid. Unlike Rust's `..` operator, the range `{m..n}` includes `n`.
 
-Since all repetition functions take an expression as the first parameter, and return a new expression, thus they support method-like chain invocation.
+Since every repetition function takes an expression as its first argument and returns a new expression, repetitions can be chained with method-like syntax.
 
-For example, `"abc".repeat(2).optional()` is equivalent to `optional(repeat("abc", 2))`
+For example, `"abc".repeat(2).optional()` is equivalent to `optional(repeat("abc", 2))`.
 
-The repetition functions are greedy by default, which means they will match as many characters as possible while still satisfying the condition. For example, for a given source string `"aaaa"`, expression `'a'.repeat_from(1)` will match "aaaa" at index 0.
+Repetition is greedy by default: it matches as many characters as possible while still allowing the overall match to succeed. For example, for the source string `"aaaa"`, the expression `'a'.repeat_from(1)` matches "aaaa" at index 0.
 
-There are also lazy versions of the repetition functions, such as `lazy_optional` and `lazy_repeat_range`. They have the same parameters and return values as their greedy counterparts, but they match as few characters as possible while still satisfying the condition.
+Each repetition function also has a lazy version, such as `lazy_optional` and `lazy_repeat_range`. Lazy versions take the same arguments as their greedy counterparts, but match as few characters as possible.
 
 | Function                       | Method                        | Notation     | Description                                         |
 |--------------------------------|-------------------------------|--------------|-----------------------------------------------------|
@@ -504,13 +506,13 @@ There are also lazy versions of the repetition functions, such as `lazy_optional
 | `lazy_repeat_from(exp, n)`     | `exp.lazy_repeat_from(n)`     | `exp{n..}?`  | Match at least n occurrences of the expression      |
 | `lazy_repeat_range(exp, m, n)` | `exp.lazy_repeat_range(m, n)` | `exp{m..n}?` | Match between m and n occurrences of the expression |
 
-For example, for a given source string `"aaaa"`, expression `'a'.lazy_repeat_from(1)` will match "a" at index 0, "a" at index 1, "a" at index 2, and "a" at index 3.
+For example, for the source string `"aaaa"`, the expression `'a'.lazy_repeat_from(1)` matches "a" at indices 0, 1, 2, and 3.
 
-Note that the laziness of a fixed repetition has no effect, thus `lazy_repeat(exp, n)` is semantically equivalent to `repeat(exp, n)`, and they are both equivalent to the notation `exp{n}`.
+Note that laziness has no effect on a fixed count, so `lazy_repeat(exp, n)` is equivalent to `repeat(exp, n)`, i.e., `exp{n}`.
 
 ### 4.4 Boundary Assertions
 
-There are four boundary assertions in ANRE, which are represented as functions that take no parameters and return `void`. They are `is_start()`, `is_end()`, `is_bound()`, and `is_not_bound()`, which are equivalent to the regex assertions `^`, `$`, `\b`, and `\B` respectively.
+ANRE has four boundary assertions, written as functions with no arguments: `is_start()`, `is_end()`, `is_bound()`, and `is_not_bound()`. They are equivalent to the regex assertions `^`, `$`, `\b`, and `\B` respectively.
 
 | Assertion        | Description                         |
 |------------------|-------------------------------------|
@@ -519,9 +521,9 @@ There are four boundary assertions in ANRE, which are represented as functions t
 | `is_bound()`     | Match a word boundary               |
 | `is_not_bound()` | Match a non-word boundary           |
 
-> Boundary assertions have no parameters and return value, they can only be written in function-like invocation syntax.
+> Because boundary assertions take no arguments, they can only be written with function syntax, not method syntax.
 
-Where "word boundary" means the position between a word character and a non-word character. For example, consider the string "ab  cd":
+A word boundary is a position between a word character and a non-word character; the start and end of the string count as non-word characters. For example, consider the string `"ab  cd"` (with two spaces):
 
 | Position | Left Character | Right Character | Is Word Boundary? |
 |----------|----------------|-----------------|-------------------|
@@ -533,115 +535,117 @@ Where "word boundary" means the position between a word character and a non-word
 | 5        | 'c'            | 'd'             | No                |
 | 6        | 'd'            | None            | Yes               |
 
-In programming, the "position" is often represented by an "index", which is the number of characters from the start of the string. You can replace the "position" column with "index" column in the above table, and replace the "Left Character" and "Right Character" columns with "Previous Character" and "Current Character" columns, this may be more intuitive to understand the concept of word boundary.
+Here, "position" is the same as the character index: the character to the right of position `i` is the character at index `i`, and the character to the left is the one at index `i - 1`.
 
-In short, the function `is_bound()` only returns true when the current character is a word character (`\w`) and the previous character is a non-word character, or vice versa.
+In short, `is_bound()` succeeds only when exactly one of the previous and current characters is a word character (`\w`).
 
-What is "assertion"?
+**What is an assertion?**
 
-"Assertion" is a type of operation in regular expressions that checks if a certain condition is true at a specific position in the source string, if the condition is true, the assertion is successful, the previous match is considered successful, otherwise it is a failure, and the previous match is discarded.
+An assertion checks whether a condition holds at the current position in the source string. If it holds, matching continues; if not, the current match attempt fails, and the engine backtracks or retries from the next position.
 
-Note that there is a cursor at the source string during the matching process, matching operations (such as literal and repetition) will check character on the cursor and move the cursor forward one by one if the match is successful. For example, for a given source string `"abc 123"`, expression `char_word+` will match "abc" at index 0, and the cursor will move to position 3.
+During matching, the engine keeps a cursor in the source string. Matching operations (such as literals and repetitions) check the characters at the cursor and, on success, move the cursor forward. For example, for the source string `"abc 123"`, the expression `char_word+` matches "abc" at index 0 and moves the cursor to position 3.
 
-> Some documents may say "consume characters" instead of "move the cursor", but it is more accurate to say "move the cursor", because the characters are not actually consumed, they are still there in the source string, and can be matched again on backtracking.
+> Some documents say "consume characters" instead of "move the cursor". "Move the cursor" is more accurate, because the characters remain in the source string and can be matched again after backtracking.
 
-On the other hand, "asserting" operations only check if the pattern matches at the current cursor position, they use their own cursor and keep the main cursor unchanged. For example, for a given source string `"abc 123"`, expression `(char_word+, is_bound())` will first match "abc" and move the cursor at position 3, and then take a look at the next character (' ' in this case), since it is a non-word character, thus there is a word boundary between 'c' and ' ', so the assertion is successful, during the "assertion" process, the main cursor always stay at position 3.
+Assertions, on the other hand, only check a condition; they never move the cursor. For example, for the source string `"abc 123"`, the expression `(char_word+, is_bound())` first matches "abc" and moves the cursor to position 3. It then checks the characters on both sides: 'c' is a word character and ' ' is not, so there is a word boundary and the assertion succeeds. Throughout the assertion, the cursor stays at position 3.
 
 ### 4.5 Lookaround Assertions
 
-Lookaround assertions are a type of assertion that allows us to check if a pattern matches before or after the current cursor position without moving the cursor. There are four lookaround assertions in ANRE, which are represented as functions that take two expressions as parameters and return `void`.
+Lookaround assertions match an expression and then check whether another pattern appears immediately after (lookahead) or before (lookbehind) it, without including that pattern in the match. ANRE provides four lookaround functions, each taking two expressions:
 
-| Assertion                         | Method                           | Description         |
-|-----------------------------------|----------------------------------|--------------------|
-| `is_before(exp, next_exp)`        | `exp.is_before(next_exp)`        | Positive lookahead  |
-| `is_not_before(exp, next_exp)`    | `exp.is_not_before(next_exp)`    | Negative lookahead  |
-| `is_after(exp, previous_exp)`     | `exp.is_after(previous_exp)`     | Positive lookbehind |
-| `is_not_after(exp, previous_exp)` | `exp.is_not_after(previous_exp)` | Negative lookbehind |
+| Function                          | Method                           | Regex          | Description         |
+|-----------------------------------|----------------------------------|----------------|---------------------|
+| `is_before(exp, next_exp)`        | `exp.is_before(next_exp)`        | `exp(?=next)`  | Positive lookahead  |
+| `is_not_before(exp, next_exp)`    | `exp.is_not_before(next_exp)`    | `exp(?!next)`  | Negative lookahead  |
+| `is_after(exp, previous_exp)`     | `exp.is_after(previous_exp)`     | `(?<=prev)exp` | Positive lookbehind |
+| `is_not_after(exp, previous_exp)` | `exp.is_not_after(previous_exp)` | `(?<!prev)exp` | Negative lookbehind |
 
-Example:
+Examples:
 
-- `char_word+.is_before("ing")`: Matches a word followed by "ing", such as "playing" and "singing"
-- `char_word+.is_not_before("ed")`: Matches a word not followed by "ed"
-- `char_word+.is_after("pre")`: Matches a word preceded by "pre", such as "preheat" and "prefix"
-- `char_word+.is_not_after("post")`: Matches a word not preceded by "post"
+- `char_word+.is_before("ing")`: matches word characters followed by "ing", e.g., "play" in "playing" and "sing" in "singing".
+- `char_word+.is_not_before("ed")`: matches word characters not immediately followed by "ed". Note that it still matches the whole word "played", because nothing follows the final 'd'.
+- `char_word+.is_after("pre")`: matches word characters preceded by "pre", e.g., "heat" in "preheat" and "fix" in "prefix".
+- `char_word+.is_not_after("post")`: matches word characters not immediately preceded by "post". Similarly, it still matches the whole word "postfix", because nothing precedes the first 'p'.
 
-> The lookbehind assertions (`is_after` and `is_not_after`) only support fixed-length patterns. For example, `char_word+.is_after("pre")` is valid because "pre" is a fixed-length pattern, but `char_word+.is_after(char_word+)` is not valid because the assertion expression can match a variable number of characters.
+> Lookbehind assertions (`is_after` and `is_not_after`) only support fixed-length patterns. For example, `char_word+.is_after("pre")` is valid because "pre" has a fixed length, but `char_word+.is_after(char_word+)` is invalid because `char_word+` can match a variable number of characters.
 
-Similar to the boundary assertions, lookaround assertions also do not move the cursor during the matching process. For example, for a given source string `"playing"`, expression `char_word+.is_before("ing")` will first match "play" at index 0 and move the cursor to position 4, and then take a look at the next characters "ing", since it matches, thus the assertion is successful, during the "assertion" process, the cursor always stay at position 4.
+The first expression is matched normally and moves the cursor, while the asserted pattern does not. For example, for the source string `"playing"`, the expression `char_word+.is_before("ing")` first matches "play" at index 0 and moves the cursor to position 4. It then checks that the following characters are "ing". They are, so the assertion succeeds, and the cursor stays at position 4.
 
 ### 4.6 Logical Operators
 
-There is only one binary operation in regular expressions, which is the logical `OR` operation, also known as alternation. In ANRE, it is represented by the `||` operator.
+ANRE has only one binary operator: logical `OR`, also known as alternation, written as `||`.
 
 Syntax:
 
 `expression1 || expression2 -> expression`
 
-For example, the expression `"cat" || "dog"` will match either "cat" or "dog".
+For example, the expression `"cat" || "dog"` matches either "cat" or "dog".
 
 ### 4.7 Groups
 
-Groups are used to group multiple expressions together to form a single expression. Groups are represented by parentheses `()` and the expressions inside the parentheses are separated by commas `,` or whitespace.
+Groups combine multiple expressions into a single expression. A group is enclosed in parentheses `()`, and the expressions inside it are separated by commas `,` or whitespace.
 
 Syntax:
 
-`( expression1, expression2, ...) -> expression`
+`(expression1, expression2, ...) -> expression`
 
-For example, `("abc", char_digit+)` is a group that matches the string literal "abc" followed by a repetition expression.
+For example, `("abc", char_digit+)` matches the string "abc" followed by one or more digits.
 
-ANRE only allows one expression at the root level, thus if there are multiple expressions, they must be grouped together. For example, the following expression is not valid:
+ANRE allows only one expression at the root level, so multiple expressions must be wrapped in a group. For example, the following is invalid:
 
 `is_start(), char_digit+, is_end()`
 
-But we can group them together to make it valid:
+Wrapping the expressions in a group makes it valid:
 
 `(is_start(), char_digit+, is_end())`
 
-> ANRE groups are only used to join multiple expressions together, they are equivalent to non-capturing groups in traditional regular expressions. And the traditional regular expression does not require any operator to join expression sequences, for example, `("abc", char_digit+)` in ANRE can be simply written as `abc\d+`.
+> ANRE groups only join expressions together; they are equivalent to non-capturing groups in traditional regular expressions. Traditional regular expressions need no operator to join a sequence, so `("abc", char_digit+)` can simply be written as `abc\d+`.
 
-The second usage of groups is to change the precedence of operators, for example, if you want to match a number with suffix "UL" or a binary number with prefix "0b", the following expression will not work as expected:
+Groups are also used to override operator precedence. For example, suppose you want to match either a decimal number with the suffix "UL" or a binary number with the prefix "0b". The following expression does not work as expected:
 
 `(char_digit+, "UL" || "0b", ['0', '1']+)`
 
-This is because the `||` operator has higher precedence than the sequence operator `,`, thus the expression is parsed as:
+This is because `||` binds more tightly than the `,` separator, so the expression is parsed as:
 
 `(char_digit+, ("UL" || "0b"), ['0', '1']+)`
 
-The correct way to write this expression is to group the two kinds of numbers together:
+The correct way is to group each alternative:
 
 `((char_digit+, "UL") || ("0b", ['0', '1']+))`
 
-> The precedence of `OR` operators in traditional regular expressions is lower than the expression sequence, thus the above expression can be written without any parentheses as `\d+UL|0b[01]+`.
+> In traditional regular expressions, `|` has lower precedence than concatenation, so the same pattern can be written without parentheses as `\d+UL|0b[01]+`.
 
 ### 4.8 Capturing Groups and Backreferences
 
-Sometimes we want to not only match a pattern, but also want to get specific parts of the matched text, this is where capturing groups come in.
+Sometimes you need not only to match a pattern but also to extract specific parts of the matched text. This is what capturing groups are for.
 
 #### 4.8.1 Capturing Groups
 
-In ANRE, we can capture a part of the matched text by preceding the expression with `#`.
+In ANRE, prefixing an expression with `#` captures the text it matches.
 
 Syntax:
 
 `#expression`
 
-For example, `(#char_word+, #char_digit+)` will match a word followed by a number, and capture the word and the number separately. For a given source string `"foo abc123 bar"`, this expression will match "abc123", and capture "abc" and "123" in two separate capturing groups with indices 1 and 2 (the index 0 is reserved for the entire match).
+For example, `(#['a'..'z']+, #char_digit+)` matches lowercase letters followed by digits, and captures the letters and the digits separately. For the source string `"foo abc123 bar"`, it matches "abc123" and captures "abc" and "123" in groups 1 and 2 (index 0 is reserved for the entire match).
 
-> Operator `#` has lower precedence than the notations and the method-like invocation, thus `#'a'?` is parsed as `#('a'?)`, and `#char_word.repeat(3)` is parsed as `#(char_word.repeat(3))`.
+> `char_word` is not used for the first part here, because it also matches digits: `(#char_word+, #char_digit+)` would capture "abc12" and "3".
 
-Besides indexed capturing groups, ANRE also supports named capturing groups, which are defined by appending `as name` to the expression.
+> The `#` operator has lower precedence than notation and method calls, so `#'a'?` is parsed as `#('a'?)`, and `#char_word.repeat(3)` as `#(char_word.repeat(3))`.
+
+In addition to indexed capturing groups, ANRE supports named capturing groups, created by appending `as NAME` to an expression.
 
 Syntax:
 
 `expression as NAME`
 
-Where `NAME` is an identifier that represents the name of the capturing group.
+Here `NAME` is an identifier that names the capturing group.
 
-Named capturing groups can be accessed by both their name and their index, for example, `(char_word+ as word, char_digit+ as number)` will match a word followed by a number, and capture the word and the number in two separate capturing groups with names "word" and "number", and indices 1 and 2 respectively.
+Named capturing groups can be accessed by name as well as by index. For example, `(['a'..'z']+ as word, char_digit+ as number)` captures the letters and the digits in groups named "word" and "number", with indices 1 and 2 respectively.
 
-> Named capturing groups create indexed capturing groups automatically, thus you are not necessary to precede the expression with `#`.
+> A named capturing group is also an indexed one, so there is no need to prefix the expression with `#`.
 
-ANRE also provides functions to create the capturing groups:
+ANRE also provides functions for creating capturing groups:
 
 | Function          | Method           | Description             |
 |-------------------|------------------|-------------------------|
@@ -650,21 +654,22 @@ ANRE also provides functions to create the capturing groups:
 
 #### 4.8.2 Backreferences
 
-Backreferences allow us to refer to previously capturing groups in the same regular expression. In ANRE, backreferences are represented by the `^` operator followed by the index or name of the capturing group.
+Backreferences match the same text that a previous capturing group matched. An indexed backreference is written as `^` followed by the group index; a named backreference is simply the group name.
 
 Syntax:
 
-- Index based: `^index`
-- Name based: `name`
+- By index: `^index`
+- By name: `name`
 
-For example, `(#char_word+, '-', ^1)` or `(char_word+ as word, '-' , word)` will match a word followed by a hyphen and the same word again. such as "foo-foo" but not "foo-bar".
+For example, `(#char_word+, '-', ^1)` and `(char_word+ as word, '-', word)` both match a word, a hyphen, and the same word again, such as "foo-foo" but not "foo-bar".
 
 ### 4.9 Separator and Multiline
 
-In ANRE, commas `,` and whitespace (including newlines) can be used as separators to separate expressions in a group or in the function invocation arguments. For example, the following expressions are equivalent:
+In ANRE, commas `,` and whitespace (including newlines) both separate the expressions in a group and the arguments of a function call. For example, the following expressions are equivalent:
 
 - `("abc", char_digit+)`
 - `("abc" char_digit+)`
+- the multi-line form below:
 
 ```anre
 (
@@ -673,11 +678,11 @@ In ANRE, commas `,` and whitespace (including newlines) can be used as separator
 )
 ```
 
-Commas and whitespace are identical in semantics, thus you can choose either of them as you like. It is recommended to span expressions across multiple lines if they are long or complex, which can make the expression more readable and maintainable.
+Commas and whitespace have the same meaning, so use whichever you prefer. Long or complex expressions are easier to read and maintain when spread across multiple lines.
 
 ### 4.10 Macros
 
-ANRE supports macros, which allow us to define reusable expressions. Macros are defined using the `define` keyword followed by the macro name and the expression surrounded by parentheses.
+Macros let you define reusable expressions. A macro is defined with the `define` keyword, followed by the macro name and an expression enclosed in parentheses.
 
 Syntax:
 
@@ -687,9 +692,10 @@ Example:
 
 ```anre
 define hex_digit (['0'..'9', 'a'..'f', 'A'..'F'])
-define component ('#', hex_digit.repeat(2))
+define component (hex_digit.repeat(2))
 (
     is_start()
+    '#'
     component as red
     component as green
     component as blue
@@ -697,11 +703,13 @@ define component ('#', hex_digit.repeat(2))
 )
 ```
 
-The above expression defines a macro `hex_digit` for hexadecimal digits, and a macro `component` for a hexadecimal color component, and then uses these macros to define a regular expression that matches a hexadecimal color code in the format `#RRGGBB`, where `RR`, `GG`, and `BB` are two-digit hexadecimal numbers representing the red, green, and blue components of the color respectively.
+This example defines a macro `hex_digit` for a hexadecimal digit and a macro `component` for one color component (two hexadecimal digits). It then uses them to match a color code in the format `#RRGGBB`, where `RR`, `GG`, and `BB` are the red, green, and blue components.
+
+> Macros are expanded by textual substitution before parsing. A definition can appear anywhere in the source, even inside a group, and applies to the whole expression.
 
 ### 4.11 Comments
 
-ANRE supports comments, which can be added using `/* */` for block comments or `//` for line comments. Comments can be placed anywhere in the expression and will be ignored by the regular expression engine. For example:
+ANRE supports block comments `/* ... */` and line comments `// ...`. Comments can appear anywhere and are ignored by the engine. For example:
 
 ```anre
 (
@@ -711,7 +719,7 @@ ANRE supports comments, which can be added using `/* */` for block comments or `
 )
 ```
 
-Block comments can even be nested, for example:
+Block comments can be nested:
 
 ```anre
 (
@@ -724,17 +732,17 @@ Block comments can even be nested, for example:
 )
 ```
 
-Nested block comments can be useful when you want to temporarily comment out a part of the expression that already contains comments.
+Nested block comments are handy for temporarily commenting out part of an expression that already contains comments.
 
 ## 5. Examples
 
-This section provides some examples of how to use the ANRE language to write regular expressions for common use cases.
+This section shows how to write ANRE expressions for some common tasks.
 
 ### 5.1 Matching Decimal Numbers
 
 ```anre
 /**
- * Decimal Numbers Regular Expression
+ * Decimal number
  *
  * Examples:
  *
@@ -749,7 +757,7 @@ char_digit.one_or_more()
 
 ```anre
 /**
- * Hex Numbers Regular Expression
+ * Hexadecimal number
  *
  * Examples:
  *
@@ -763,7 +771,7 @@ char_digit.one_or_more()
     // The prefix "0x"
     "0x"
 
-    // The hex digits
+    // Hexadecimal digits
     ['0'..'9', 'a'..'f', 'A'..'F'].one_or_more()
 )
 ```
@@ -772,7 +780,7 @@ char_digit.one_or_more()
 
 ```anre
 /**
- * Email Address Validation Regular Expression
+ * Email address validation
  *
  * Examples:
  *
@@ -784,28 +792,28 @@ char_digit.one_or_more()
  */
 
 (
-    // Asserts that the current is the first character
+    // Start of the string
     is_start()
 
-    // User name
+    // Local part
     [char_word, '.', '-'].one_or_more()
 
-    // Sub-address
+    // Optional sub-address, e.g. "+mailbox"
     ('+', [char_word, '-'].one_or_more()).optional()
 
-    // The separator
+    // Separator
     '@'
 
-    // Domain name
+    // Domain name labels, each followed by a dot
     (
         ['a'..'z', 'A'..'Z', '0'..'9', '-'].one_or_more()
         '.'
     ).one_or_more()
 
     // Top-level domain
-    ['a'..'z'].repeat_from(2)
+    ['a'..'z', 'A'..'Z'].repeat_from(2)
 
-    // Asserts that the current is the last character
+    // End of the string
     is_end()
 )
 ```
@@ -814,9 +822,10 @@ char_digit.one_or_more()
 
 ```anre
 /**
- * IPv4 Address Validation Regular Expression
+ * IPv4 address validation
  */
 
+// Each part is a number from 0 to 255 without leading zeros
 define num_25x ("25", ['0'..'5'])
 define num_2xx ('2', ['0'..'4'], char_digit)
 define num_1xx ('1', char_digit, char_digit)
@@ -831,35 +840,35 @@ define part (num_25x || num_2xx || num_1xx || num_xx || num_x)
 
 ```anre
 /**
- * Simple HTML Tag Regular Expression
+ * Simple HTML tag
  */
 
 (
     '<'                                         // opening tag
     char_word+ as tag_name                      // tag name
     (                                           // attributes
-        char_space,
-        char_word+,                             // key
+        char_space
+        char_word+                              // key
         ('=', '"', char_word+, '"').optional()  // value
     )*
     '>'
-    char_any+?                                  // text content
-    '<', '/', tag_name, '>'                     // closing tag
+    char_any*?                                  // text content
+    "</", tag_name, '>'                         // closing tag
 )
 ```
 
-## 6 Learn More
+## 6. Learn More
 
-If you are interested in learning more about the ANRE language and how the regular expression engine works, or how to implement a comprehensive engine, you can read my little book [Building a Regex Engine - Implementing a Comprehensive Regular Expression Engine with Rust](docs/building-a-regex-engine.md).
+To learn more about the ANRE language, how regular expression engines work, or how to build a full-featured one yourself, read my short book [Building a Regex Engine - Implementing a Comprehensive Regular Expression Engine with Rust](docs/building-a-regex-engine.md).
 
 ![Book Cover](docs/images/book-cover-wide-bg.png)
 
-It provides a viewpoint of how regular expression engines work, and gives a step-by-step guide to building a regular expression engine from scratch in Rust, covering all the features mentioned in this crate and more.
+The book explains how regular expression engines work and walks you step by step through building one from scratch in Rust, covering every feature of this crate and more.
 
-## 7 Linking
+## 7. Links
 
 - [Regex ANRE source code repository](https://github.com/hemashushu/anre)
 
-## 8 License
+## 8. License
 
-This project is licensed under the MPL 2.0 License with additional terms. See the files [LICENSE](./LICENSE) and [LICENSE.additional](./LICENSE.additional)
+This project is licensed under the Mozilla Public License 2.0 (MPL-2.0) with additional terms. See [LICENSE](./LICENSE) and [LICENSE.additional](./LICENSE.additional).
