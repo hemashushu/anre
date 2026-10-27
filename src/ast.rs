@@ -15,34 +15,12 @@ pub enum Expression {
 
     BackReference(BackReference),
 
-    /**
-     * The "group" in ANRE differs from the "group" in traditional regular expressions.
-     * In ANRE, a "group" is a series of parenthesized patterns that are not captured
-     * unless explicitly referenced by the `name` or `index` function.
-     * In terms of results, an ANRE "group" is equivalent to a "non-capturing group"
-     * in traditional regular expressions.
-     *
-     * Example:
-     *
-     * ANRE: `('a', 'b', char_word+)`
-     * Equivalent regex: `ab\w+`
-     *
-     * Groups in ANRE are used to group patterns and modify operator precedence
-     * and associativity.
-     */
+    // ANRE groups are non-capturing; `index` and `name` explicitly add captures.
     Group(Vec<Expression>),
 
-    /**
-     * Represents a function call, which can be a quantifier (for example, `optional()`, `one_or_more()`)
-     * or an assertion (for example, `is_before()`, `is_after()`,
-     */
     FunctionCall(Box<FunctionCall>),
 
-    /**
-     * Represents a disjunction (logical OR) between two expressions.
-     * For example, `a|b` matches either 'a' or 'b'.
-     * Reference: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Disjunction
-     */
+    // Alternation tries the left branch before the right branch.
     Or(Box<Expression>, Box<Expression>),
 }
 
@@ -56,13 +34,12 @@ pub struct FunctionCall {
 pub enum FunctionArgument {
     Expression(Expression),
     Number(usize),      // repetition arguments
-    Identifier(String), // name capturing group name
+    Identifier(String), // Named capture group identifier
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Literal {
-    // The "any character" literal `.` matches any single character
-    // except for line terminators (for example, `\n`, `\r`).
+    // `char_any` and `.` exclude LF and CR, but not other Unicode line separators.
     AnyChar,
 
     // A character literal represents a single character.
@@ -92,10 +69,7 @@ pub enum CharSetElement {
     CharRange(CharRange),
     PresetCharSet(PresetCharSetName),
 
-    // Nested charsets are allowed in ANRE, but only as positive charsets.
-    // A nested charset is a charset that is included as an element within another charset.
-    // For example, `['a', ['b', 'c']]` represents a charset that includes 'a', 'b', and 'c'.
-    // However, `['a', !['b', 'c']]` is not allowed because the inner charset is negative.
+    // Only non-negated sets may be nested, as in `['a', ['b', 'c']]`.
     CharSet(Box<CharSet>),
 }
 
@@ -124,7 +98,7 @@ pub enum PresetCharSetName {
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum FunctionName {
-    // Greedy Quantifier
+    // Greedy quantifiers
     Optional,    // `optional(expression)->expression`
     OneOrMore,   // `one_or_more(expression)->expression`
     ZeroOrMore,  // `zero_or_more(expression)->expression`
@@ -132,7 +106,7 @@ pub enum FunctionName {
     RepeatFrom,  // `repeat_from(expression, n)->expression`, n >= 0
     RepeatRange, // `repeat_range(expression, m, n)->expression`, m >= 0, n >= m
 
-    // Lazy Quantifier
+    // Lazy quantifiers
     LazyOptional,    // `lazy_optional(expression)->expression`
     LazyOneOrMore,   // `lazy_one_or_more(expression)->expression`
     LazyZeroOrMore,  // `lazy_zero_or_more(expression)->expression`
@@ -140,14 +114,13 @@ pub enum FunctionName {
     LazyRepeatFrom,  // `lazy_repeat_from(expression, n)->expression`, n >= 0
     LazyRepeatRange, // `lazy_repeat_range(expression, m, n)->expression`, m >= 0, n >= m
 
-    // Note that `LazyRepeat` is semantically equivalent to `Repeat`
-    // because the laziness of a fixed repetition has no effect.
+    // Laziness has no effect on a fixed repetition count.
 
-    // Boundary Assertions (i.e., "判定")
-    IsStart,    // `is_start()->()`
-    IsEnd,      // `is_end()->()`
-    IsBound,    // `is_bound()->()`
-    IsNotBound, // `is_not_bound()->()`
+    // Boundary assertions match positions without consuming characters.
+    IsStart,    // `is_start()`
+    IsEnd,      // `is_end()`
+    IsBound,    // `is_bound()`
+    IsNotBound, // `is_not_bound()`
 
     // Lookahead and Lookbehind Assertions
     //
@@ -157,10 +130,8 @@ pub enum FunctionName {
     //   impossible for 'a' and 'b' to both precede 'c'.
     // - `('c'.is_before('a'), 'b')` always fails because it is
     //   impossible for 'a' and 'b' to both follow 'c'.
-    // - 'a'.is_before('b'.is_after('c'))` always fails because it is
-    //   impossible for 'a' to follow 'c' and for 'b' to follow 'a' at the same time.
-    // - 'c'.is_after('a'.is_before('b'))` always fails because it is
-    //   impossible for 'c' to precede 'a' and for 'b' to precede 'c' at the same time.
+    // - `'a'.is_before('b'.is_after('c'))` requires both 'a' and 'c' immediately before 'b'.
+    // - `'c'.is_after('a'.is_before('b'))` requires both 'b' and 'c' immediately after 'a'.
 
     // `is_before(expression, next_expression)->expression`
     //
@@ -204,7 +175,7 @@ pub enum FunctionName {
 
     // `name(expression, NAME)->expression`
     //
-    // name capturing group:
+    // named capturing group:
     // - `(?<foo>\w+)`
     // - `name(char_word+, foo)`
     // - `char_word+.name(foo)`

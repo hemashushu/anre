@@ -9,7 +9,7 @@ mod macro_expander;
 mod parser;
 mod token;
 
-// shared by both anre and traditional currently for simplicity
+// Both parsers use the same AST printer.
 pub mod printer;
 
 pub use parser::parse_from_str;

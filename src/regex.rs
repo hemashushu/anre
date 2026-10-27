@@ -12,6 +12,7 @@ use crate::{
     error::AnreError,
     object::Map,
     process::start_process,
+    utf8_codepoint_reader::next_codepoint,
 };
 
 #[derive(Debug)]
@@ -40,15 +41,7 @@ impl Regex {
             return None;
         }
 
-        let match_range = &context.matched_slots[0];
-        let match_ = Match::new(
-            match_range.start,
-            match_range.end,
-            self.map.get_capture_group_name_by_index(0),
-            sub_string(bytes, match_range.start, match_range.end),
-        );
-
-        Some(match_)
+        Some(whole_match(&self.map, &context))
     }
 
     pub fn find_iter<'a, 'b>(&'a self, text: &'b str) -> Matches<'a, 'b> {
@@ -70,21 +63,7 @@ impl Regex {
             return None;
         }
 
-        let matches: Vec<Match> = context
-            .matched_slots
-            .iter()
-            .enumerate()
-            .map(|(idx, match_range)| {
-                Match::new(
-                    match_range.start,
-                    match_range.end,
-                    self.map.get_capture_group_name_by_index(idx),
-                    sub_string(bytes, match_range.start, match_range.end),
-                )
-            })
-            .collect();
-
-        Some(Captures { matches })
+        Some(captures(&self.map, &context))
     }
 
     pub fn captures_iter<'a, 'b>(&'a self, text: &'b str) -> CaptureMatches<'a, 'b> {
@@ -108,7 +87,7 @@ impl Regex {
 pub struct CaptureMatches<'a, 'b> {
     map: &'a Map,
     context: Context<'b>,
-    last_position: usize,
+    state: IterationState,
 }
 
 impl<'a, 'b> CaptureMatches<'a, 'b> {
@@ -116,7 +95,7 @@ impl<'a, 'b> CaptureMatches<'a, 'b> {
         CaptureMatches {
             map,
             context,
-            last_position: 0,
+            state: IterationState::default(),
         }
     }
 }
@@ -125,43 +104,18 @@ impl<'a, 'b> Iterator for CaptureMatches<'a, 'b> {
     type Item = Captures<'a, 'b>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !start_process(&mut self.context, self.map, self.last_position) {
+        if !self.state.search_next(self.map, &mut self.context) {
             return None;
         }
 
-        let matches: Vec<Match> = self
-            .context
-            .matched_slots
-            .iter()
-            .enumerate()
-            .map(|(idx, match_range)| {
-                Match::new(
-                    match_range.start,
-                    match_range.end,
-                    self.map.get_capture_group_name_by_index(idx),
-                    sub_string(self.context.bytes, match_range.start, match_range.end),
-                )
-            })
-            .collect();
-
-        self.last_position = if matches[0].end == self.last_position {
-            // To prevent infinite loops when the regex can match an empty string,
-            // we need to ensure that we move forward in the input string.
-            // If the match is empty (i.e., start and end are the same), we will move the last_position by one character
-            // to avoid matching the same position again.
-            self.last_position + 1
-        } else {
-            matches[0].end
-        };
-
-        Some(Captures { matches })
+        Some(captures(self.map, &self.context))
     }
 }
 
 pub struct Matches<'a, 'b> {
     map: &'a Map,
     context: Context<'b>,
-    last_position: usize,
+    state: IterationState,
 }
 
 impl<'a, 'b> Matches<'a, 'b> {
@@ -169,7 +123,7 @@ impl<'a, 'b> Matches<'a, 'b> {
         Matches {
             map,
             context,
-            last_position: 0,
+            state: IterationState::default(),
         }
     }
 }
@@ -178,66 +132,109 @@ impl<'a, 'b> Iterator for Matches<'a, 'b> {
     type Item = Match<'a, 'b>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !start_process(&mut self.context, self.map, self.last_position) {
+        if !self.state.search_next(self.map, &mut self.context) {
             return None;
         }
 
-        let match_range = &self.context.matched_slots[0];
-        let match_ = Match::new(
-            match_range.start,
-            match_range.end,
-            self.map.get_capture_group_name_by_index(0),
-            sub_string(self.context.bytes, match_range.start, match_range.end),
-        );
-
-        self.last_position = if match_.end == self.last_position {
-            // To prevent infinite loops when the regex can match an empty string,
-            // we need to ensure that we move forward in the input string.
-            // If the match is empty (i.e., start and end are the same), we will move the last_position by one character
-            // to avoid matching the same position again.
-            self.last_position + 1
-        } else {
-            match_.end
-        };
-
-        Some(match_)
+        Some(whole_match(self.map, &self.context))
     }
+}
+
+#[derive(Default)]
+struct IterationState {
+    // Position (in bytes) where the next search starts.
+    next_start: usize,
+    last_match_end: Option<usize>,
+    finished: bool,
+}
+
+impl IterationState {
+    /// Skips empty matches at the previous match's end, ensuring progress as in the `regex` crate.
+    fn search_next(&mut self, map: &Map, context: &mut Context) -> bool {
+        while !self.finished {
+            if !start_process(context, map, self.next_start) {
+                self.finished = true;
+                break;
+            }
+
+            let range = context.matched_slots[0].clone().unwrap();
+            if range.start == range.end && self.last_match_end == Some(range.end) {
+                if range.end >= context.bytes.len() {
+                    self.finished = true;
+                } else {
+                    let (_, byte_length) = next_codepoint(context.bytes, range.end);
+                    self.next_start = range.end + byte_length;
+                }
+                continue;
+            }
+
+            self.next_start = range.end;
+            self.last_match_end = Some(range.end);
+            return true;
+        }
+
+        false
+    }
+}
+
+fn whole_match<'a, 'b>(map: &'a Map, context: &Context<'b>) -> Match<'a, 'b> {
+    let range = context.matched_slots[0].clone().unwrap();
+    Match::new(
+        range.start,
+        range.end,
+        map.get_capture_group_name_by_index(0),
+        sub_string(context.bytes, range.start, range.end),
+    )
+}
+
+fn captures<'a, 'b>(map: &'a Map, context: &Context<'b>) -> Captures<'a, 'b> {
+    let matches = context
+        .matched_slots
+        .iter()
+        .enumerate()
+        .map(|(idx, slot)| {
+            slot.as_ref().map(|range| {
+                Match::new(
+                    range.start,
+                    range.end,
+                    map.get_capture_group_name_by_index(idx),
+                    sub_string(context.bytes, range.start, range.end),
+                )
+            })
+        })
+        .collect();
+
+    Captures { matches }
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Captures<'a, 'b> {
-    pub matches: Vec<Match<'a, 'b>>,
+    // `None` for groups that did not participate in the match.
+    pub matches: Vec<Option<Match<'a, 'b>>>,
 }
 
-impl Captures<'_, '_> {
-    // the following methods are intended to
-    // be compatible with the 'Captures' API of crate 'regex':
+impl<'a, 'b> Captures<'a, 'b> {
+    // These methods follow the `regex` crate's `Captures` API where supported.
     // https://docs.rs/regex/latest/regex/struct.Captures.html
 
-    pub fn get(&self, index: usize) -> Option<&Match<'_, '_>> {
-        self.matches.get(index)
+    pub fn get(&self, index: usize) -> Option<&Match<'a, 'b>> {
+        self.matches.get(index).and_then(Option::as_ref)
     }
 
-    pub fn name(&self, name: &str) -> Option<&Match<'_, '_>> {
-        // Option<Match> {
-        self.matches.iter().find(|item| match item.name {
-            Some(s) => s == name,
-            None => false,
-        })
+    pub fn name(&self, name: &str) -> Option<&Match<'a, 'b>> {
+        self.matches
+            .iter()
+            .flatten()
+            .find(|item| item.name == Some(name))
     }
 
-    // For example:
-    //
-    // ```
-    //   let c = re.find("...").next().unwrap();
-    //   let (whole, [one, two, three]) = c.extract();
-    // ```
-    pub fn extract<const N: usize>(&self) -> (&str, [&str; N]) {
+    // Missing groups are represented by empty strings, unlike `get` and `name`.
+    pub fn extract<const N: usize>(&self) -> (&'b str, [&'b str; N]) {
         let mut items: [&str; N] = [""; N];
         for (idx, item) in items.iter_mut().enumerate() {
-            *item = self.matches[idx + 1].value;
+            *item = self.get(idx + 1).map_or("", |m| m.value);
         }
-        (self.matches[0].value, items)
+        (self.get(0).map_or("", |m| m.value), items)
     }
 
     pub fn len(&self) -> usize {
@@ -273,8 +270,8 @@ impl Index<&str> for Captures<'_, '_> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Match<'a, 'b> {
-    pub start: usize, // the position (inclusive) of utf-8 byte stream
-    pub end: usize,   // the position (exclusive) of utf-8 byte stream
+    pub start: usize, // Inclusive UTF-8 byte offset.
+    pub end: usize,   // Exclusive UTF-8 byte offset.
     pub name: Option<&'a str>,
     pub value: &'b str,
 }
@@ -289,8 +286,7 @@ impl<'a, 'b> Match<'a, 'b> {
         }
     }
 
-    // the following methods are intended to
-    // be compatible with the 'Match' API of crate 'regex':
+    // These methods follow the `regex` crate's `Match` API where supported.
     // https://docs.rs/regex/latest/regex/struct.Match.html
 
     pub fn start(&self) -> usize {
@@ -322,12 +318,6 @@ impl<'a, 'b> Match<'a, 'b> {
 }
 
 fn sub_string(bytes: &[u8], start: usize, end_excluded: usize) -> &str {
-    /*
-     * convert Vec<char> into String:
-     * `let s:String = chars.iter().collect()`
-     * or
-     * `let s = String::from_iter(&chars)`
-     */
     let slice = &bytes[start..end_excluded];
     core::str::from_utf8(slice).unwrap()
 }
@@ -350,9 +340,9 @@ mod tests {
             /*value:*/ &'b str,
         )],
     ) -> Captures<'a, 'b> {
-        let matches: Vec<Match> = matches
-            .iter()
-            .map(|item| Match::new(item.0, item.1, item.2, item.3))
+let matches: Vec<Option<Match>> = matches
+        .iter()
+        .map(|item| Some(Match::new(item.0, item.1, item.2, item.3)))
             .collect();
 
         Captures { matches }
@@ -1242,15 +1232,14 @@ mod tests {
             //               "^ ^^  ^^^    "
             let mut matches = re.find_iter(text);
 
+            // Empty matches right after a previous match are skipped.
             assert_eq!(matches.next(), Some(new_match(0, 1, "a")));
-            assert_eq!(matches.next(), Some(new_match(1, 1, "")));
             assert_eq!(matches.next(), Some(new_match(2, 4, "aa")));
-            assert_eq!(matches.next(), Some(new_match(4, 4, "")));
             assert_eq!(matches.next(), Some(new_match(5, 5, "")));
             assert_eq!(matches.next(), Some(new_match(6, 9, "aaa")));
-            assert_eq!(matches.next(), Some(new_match(9, 9, "")));
             assert_eq!(matches.next(), Some(new_match(10, 10, "")));
             assert_eq!(matches.next(), Some(new_match(11, 11, "")));
+            assert_eq!(matches.next(), Some(new_match(12, 12, "")));
             assert_eq!(matches.next(), None);
         }
 
@@ -1303,7 +1292,7 @@ mod tests {
             assert_eq!(matches.next(), Some(new_match(3, 4, "a")));
             assert_eq!(matches.next(), Some(new_match(6, 7, "a")));
             assert_eq!(matches.next(), Some(new_match(7, 8, "a")));
-            // omit the follow up
+            // omit the follow-up
         }
 
         // repetition with identical start and end
@@ -1329,15 +1318,13 @@ mod tests {
             let mut matches = re.find_iter(text);
 
             assert_eq!(matches.next(), Some(new_match(0, 1, "a")));
-            assert_eq!(matches.next(), Some(new_match(1, 1, "")));
             assert_eq!(matches.next(), Some(new_match(2, 4, "aa")));
-            assert_eq!(matches.next(), Some(new_match(4, 4, "")));
             assert_eq!(matches.next(), Some(new_match(5, 5, "")));
             assert_eq!(matches.next(), Some(new_match(6, 8, "aa")));
             assert_eq!(matches.next(), Some(new_match(8, 9, "a")));
-            assert_eq!(matches.next(), Some(new_match(9, 9, "")));
             assert_eq!(matches.next(), Some(new_match(10, 10, "")));
             assert_eq!(matches.next(), Some(new_match(11, 11, "")));
+            assert_eq!(matches.next(), Some(new_match(12, 12, "")));
             assert_eq!(matches.next(), None);
         }
 
@@ -1487,7 +1474,7 @@ mod tests {
         }
 
         // backtracking - failed
-        // because there is no char between 'a' and 'c'
+        // No character appears between 'a' and 'c'.
         for re in build(
             r#"(is_start(), 'a', char_any+, 'c')"#, // ANRE
             r#"^a.+c"#,                             // traditional
@@ -1498,7 +1485,7 @@ mod tests {
         }
 
         // backtracking - failed
-        // because there is not enough char between 'a' and 'c'
+        // Too few characters appear between 'a' and 'c'.
         for re in build(
             r#"(is_start(), 'a', char_any{3..}, 'c')"#, // ANRE
             r#"^a.{3,}c"#,                              // traditional
@@ -1607,7 +1594,7 @@ mod tests {
             assert_eq!(one.get(1).unwrap().as_str(), "0x");
             assert_eq!(one.get(2).unwrap().as_str(), "23");
 
-            // test Captures number index trait
+            // Test indexing captures by group number
             assert_eq!(&one[0], "0x23");
             assert_eq!(&one[1], "0x");
             assert_eq!(&one[2], "23");
@@ -1616,7 +1603,7 @@ mod tests {
             assert_eq!(one.name("prefix").unwrap().as_str(), "0x");
             assert_eq!(one.name("number").unwrap().as_str(), "23");
 
-            // test Captures str index trait
+            // Test indexing captures by group name
             assert_eq!(&one["prefix"], "0x");
             assert_eq!(&one["number"], "23");
 
@@ -1654,10 +1641,11 @@ mod tests {
 
             let mut matches = re.captures_iter(text);
 
-            assert_eq!(
-                matches.next(),
-                Some(new_captures(&[(2, 4, None, "ac"), (3, 3, None, "")]))
-            );
+            // The optional group does not participate in the first match.
+            let first = matches.next().unwrap();
+            assert_eq!(first.get(0), Some(&new_match(2, 4, "ac")));
+            assert_eq!(first.get(1), None);
+            assert_eq!(first.len(), 2);
 
             assert_eq!(
                 matches.next(),
@@ -1734,7 +1722,7 @@ mod tests {
             );
         }
 
-        // backreference with number indexed capturing
+        // backreference with indexed capturing
         for re in build(
             r#"
             (
@@ -1808,11 +1796,7 @@ mod tests {
 
         // test failed lookbehind
         //
-        // - `('a','c'.is_after('b'))` always fails because it is
-        // NOT possible to be both 'a' and 'b' before 'c'.
-        //
-        // - `('c'.is_before('a'), 'b')` always fails because it is
-        // impossible to be both 'a' and 'b' after 'c'.
+        // Both 'a' and 'b' would have to occur immediately before 'c'.
         for re in build(
             r#"
             ('a','c'.is_after('b'))
@@ -1881,11 +1865,7 @@ mod tests {
 
         // test failed lookahead
         //
-        // - `('a','c'.is_after('b'))` always fails because it is
-        // NOT possible to be both 'a' and 'b' before 'c'.
-        //
-        // - `('c'.is_before('a'), 'b')` always fails because it is
-        // impossible to be both 'a' and 'b' after 'c'.
+        // Both 'a' and 'b' would have to occur immediately after 'c'.
         for re in build(
             r#"('c'.is_before('a'), 'b')"#, // ANRE
             r#"c(?=a)b"#,                   // traditional
@@ -1893,6 +1873,181 @@ mod tests {
             let text = "ca cb cab cba";
             let mut matches = re.find_iter(text);
             assert_eq!(matches.next(), None);
+        }
+    }
+
+    #[test]
+    fn test_process_match_at_end_of_text() {
+        for re in build("is_end()", "$") {
+            assert_eq!(re.find("abc"), Some(new_match(3, 3, "")));
+            assert!(re.is_match(""));
+        }
+
+        for re in build("'a'*", "a*") {
+            assert_eq!(re.find(""), Some(new_match(0, 0, "")));
+        }
+
+        for re in build("'a'.is_before(is_end())", "a(?=$)") {
+            assert_eq!(re.find("aba"), Some(new_match(2, 3, "a")));
+        }
+    }
+
+    #[test]
+    fn test_process_empty_matches_iteration() {
+        for re in build("is_bound()", r"\b") {
+            let positions: Vec<usize> = re.find_iter("ab  cd").map(|m| m.start()).collect();
+            assert_eq!(positions, vec![0, 2, 4, 6]);
+        }
+
+        // An empty match right after the previous match is skipped.
+        for re in build("'a'*", "a*") {
+            let ranges: Vec<_> = re.find_iter("aab").map(|m| m.range()).collect();
+            assert_eq!(ranges, vec![0..2, 3..3]);
+        }
+
+        // Advancing after an empty match must respect UTF-8 boundaries.
+        for re in build("(is_start() || char_any)", "^|.") {
+            let ranges: Vec<_> = re.find_iter("é").map(|m| m.range()).collect();
+            assert_eq!(ranges, vec![0..0]);
+
+            let ranges: Vec<_> = re.captures_iter("é").map(|c| c[0].len()).collect();
+            assert_eq!(ranges, vec![0]);
+        }
+
+        for re in build("'x'?", "x?") {
+            let ranges: Vec<_> = re.find_iter("文").map(|m| m.range()).collect();
+            assert_eq!(ranges, vec![0..0, 3..3]);
+        }
+    }
+
+    #[test]
+    fn test_process_word_boundary_with_utf8() {
+        for re in build("(is_bound(), 'a')", r"\ba") {
+            assert_eq!(re.find("文a"), Some(new_match(3, 4, "a")));
+            assert_eq!(re.find("😋a"), Some(new_match(4, 5, "a")));
+        }
+
+        for re in build("('a', is_bound())", r"a\b") {
+            assert_eq!(re.find("a文"), Some(new_match(0, 1, "a")));
+        }
+    }
+
+    #[test]
+    fn test_process_capture_backtracking() {
+        // A failed alternative must not leave its capture behind.
+        for re in build("((#'a', 'x') || ('a', 'y'))", "(a)x|ay") {
+            let caps = re.captures("ay").unwrap();
+            assert_eq!(caps.get(0).map(|m| m.as_str()), Some("ay"));
+            assert_eq!(caps.get(1), None);
+            assert_eq!(caps.len(), 2);
+        }
+
+        // Captures must not leak from the previous match.
+        for re in build("('a' || #'b')", "a|(b)") {
+            let groups: Vec<_> = re
+                .captures_iter("ba")
+                .map(|c| c.get(1).map(|m| m.as_str()))
+                .collect();
+            assert_eq!(groups, vec![Some("b"), None]);
+        }
+
+        // A backreference must not see a capture from a failed branch.
+        for re in build("((#'a', 'x') || 'a', ^1, 'z')", r"(?:(a)x|a)\1z") {
+            assert_eq!(re.find("az"), Some(new_match(0, 2, "az")));
+        }
+    }
+
+    #[test]
+    fn test_process_repetition_counter_backtracking() {
+        for re in build("(('a' || \"ab\").repeat(2), 'c')", "(?:a|ab){2}c") {
+            assert_eq!(re.find("abac"), Some(new_match(0, 4, "abac")));
+        }
+
+        for re in build("(('a' || \"ab\").repeat_range(2, 3), 'c')", "(?:a|ab){2,3}c") {
+            assert_eq!(re.find("ababc"), Some(new_match(0, 5, "ababc")));
+        }
+    }
+
+    #[test]
+    fn test_process_repetition_of_empty_expression() {
+        for re in build("('a'?)*", "(?:a?)*") {
+            assert_eq!(re.find("b"), Some(new_match(0, 0, "")));
+            assert_eq!(re.find("aab"), Some(new_match(0, 2, "aa")));
+        }
+
+        for re in build("(('a'?)+, 'b')", "(?:a?)+b") {
+            assert_eq!(re.find("aab"), Some(new_match(0, 3, "aab")));
+        }
+
+        for re in build("(is_bound()*, 'a')", r"\b*a") {
+            assert_eq!(re.find("a"), Some(new_match(0, 1, "a")));
+        }
+    }
+
+    #[test]
+    fn test_process_lookbehind_match_length() {
+        // `'b'.is_after('a')` consumes one character; the lookbehind contributes no length.
+        for re in build("'c'.is_after('b'.is_after('a'))", "(?<=(?<=a)b)c") {
+            assert_eq!(re.find("abc"), Some(new_match(2, 3, "c")));
+            assert_eq!(re.find("xbc"), None);
+        }
+
+        for re in build("'b'.is_after('a'{2}?)", "(?<=a{2}?)b") {
+            assert_eq!(re.find("aab"), Some(new_match(2, 3, "b")));
+        }
+
+        assert_eq!(
+            Regex::from_anre("'b'.is_after(())").unwrap().find("ab"),
+            Some(new_match(1, 2, "b"))
+        );
+    }
+
+    #[test]
+    fn test_process_optional_start_assertion() {
+        let re = Regex::from_anre("(is_start()?, 'b')").unwrap();
+        assert_eq!(re.find("ab"), Some(new_match(1, 2, "b")));
+
+        let re = Regex::from_anre("(is_start()*, 'b')").unwrap();
+        assert_eq!(re.find("ab"), Some(new_match(1, 2, "b")));
+    }
+
+    #[test]
+    fn test_invalid_patterns_return_errors() {
+        for anre in [
+            "repeat()",
+            "repeat('a')",
+            "repeat('a', 'b')",
+            "repeat(3)",
+            "is_before()",
+            "'a'.name()",
+            "'a'.name(1)",
+            "index()",
+            "'a'.repeat_range(1)",
+            "one_or_more()",
+            "is_start('a')",
+        ] {
+            assert!(Regex::from_anre(anre).is_err(), "{}", anre);
+        }
+
+        for regex in ["a{", "a{1,", r"\k"] {
+            assert!(Regex::new(regex).is_err(), "{}", regex);
+        }
+    }
+
+    #[test]
+    fn test_process_backreference_as_function_argument() {
+        let re = Regex::from_anre("('a' as w, '-', '-'.is_before(w))").unwrap();
+        assert_eq!(re.find("a--a"), Some(new_match(0, 3, "a--")));
+        assert_eq!(re.find("a--b"), None);
+    }
+
+    #[test]
+    fn test_process_zero_repetition_keeps_group_numbering() {
+        for re in build("((#'a'){0}, #'b')", "(a){0}(b)") {
+            let caps = re.captures("b").unwrap();
+            assert_eq!(caps.len(), 3);
+            assert_eq!(caps.get(1), None);
+            assert_eq!(caps.get(2).map(|m| m.as_str()), Some("b"));
         }
     }
 }

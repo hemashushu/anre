@@ -8,8 +8,7 @@ use crate::{error::AnreError, peekable_iter::PeekableIter, range::Range};
 
 use super::token::{Token, TokenWithRange};
 
-/// Expands `define name (...)` declarations and substitutes later uses of
-/// `name` with the recorded token sequence.
+/// Removes macro definitions and substitutes their token sequences throughout the program.
 pub fn expand(tokens: Vec<TokenWithRange>) -> Result<Vec<TokenWithRange>, AnreError> {
     let (program_tokens, definitions) = extract_definitions(tokens)?;
     let expand_tokens = replace_identifiers(program_tokens, definitions);
@@ -17,12 +16,7 @@ pub fn expand(tokens: Vec<TokenWithRange>) -> Result<Vec<TokenWithRange>, AnreEr
     Ok(expand_tokens)
 }
 
-/// Removes macro definitions from the program token stream and records them for
-/// a later substitution pass.
-///
-/// A definition has the shape `define name (body)`. The body is kept as raw
-/// tokens so the parser sees exactly what an inline expansion would have
-/// produced.
+/// Extracts macro bodies as raw tokens so substitution preserves their original syntax.
 fn extract_definitions(
     mut tokens: Vec<TokenWithRange>,
 ) -> Result<(Vec<TokenWithRange>, Vec<Definition>), AnreError> {
@@ -44,8 +38,7 @@ fn extract_definitions(
         let mut end_index_opt: Option<usize> = None;
         let mut idx = define_keyword_index + 1;
 
-        // Find the closing `)` for the definition body. Nested groups inside the
-        // body are allowed, so the search tracks parenthesis depth.
+        // Track nesting depth to find the closing parenthesis of the macro body.
         while idx < tokens.len() {
             match tokens[idx].token {
                 Token::ParenthesisOpen => {
@@ -103,13 +96,11 @@ fn replace_identifiers(
     mut program_tokens: Vec<TokenWithRange>,
     mut definitions: Vec<Definition>,
 ) -> Vec<TokenWithRange> {
-    // Pop definitions in declaration order. Before a definition is applied to the
-    // program, expand it through any later definitions it depends on.
+    // Apply each definition to later definitions before substituting it into the program.
     definitions.reverse();
 
     while let Some(definition) = definitions.pop() {
-        // Expand this definition inside the remaining definitions first so nested
-        // macro references are resolved before we touch the program tokens.
+        // Later macro bodies can reuse earlier definitions.
         for idx in (0..definitions.len()).rev() {
             find_and_replace_identifiers(
                 &mut definitions[idx].tokens,

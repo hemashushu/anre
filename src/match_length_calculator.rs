@@ -8,10 +8,7 @@ use std::ops::{Add, BitOr, Mul};
 
 use crate::ast::{Expression, FunctionArgument, FunctionName, Literal};
 
-/// Calculate the match length of an expression.
-///
-/// The match length is the number of characters that the expression can match.
-/// The "look-behind assertion" requires the match length to be fixed.
+/// Computes consumed length in Unicode scalar values to validate fixed-length lookbehind.
 pub fn calculate_match_length(exp: &Expression) -> MatchLength {
     match exp {
         Expression::Literal(literal) => match literal {
@@ -25,15 +22,14 @@ pub fn calculate_match_length(exp: &Expression) -> MatchLength {
         Expression::Group(exps) => exps
             .iter()
             .map(calculate_match_length)
-            .reduce(|acc, item| acc + item)
-            .unwrap(),
+            .fold(MatchLength::Fixed(0), |acc, item| acc + item),
         Expression::FunctionCall(function_call) => match function_call.name {
             FunctionName::IsStart | FunctionName::IsEnd => MatchLength::Fixed(0),
             FunctionName::IsBound | FunctionName::IsNotBound => MatchLength::Fixed(0),
             FunctionName::Optional => MatchLength::Variable,
             FunctionName::OneOrMore => MatchLength::Variable,
             FunctionName::ZeroOrMore => MatchLength::Variable,
-            FunctionName::Repeat => {
+            FunctionName::Repeat | FunctionName::LazyRepeat => {
                 let FunctionArgument::Expression(base_exp) = &function_call.args[0] else {
                     unreachable!()
                 };
@@ -48,46 +44,15 @@ pub fn calculate_match_length(exp: &Expression) -> MatchLength {
             FunctionName::LazyOptional => MatchLength::Variable,
             FunctionName::LazyOneOrMore => MatchLength::Variable,
             FunctionName::LazyZeroOrMore => MatchLength::Variable,
-            FunctionName::LazyRepeat => MatchLength::Variable,
             FunctionName::LazyRepeatRange => MatchLength::Variable,
             FunctionName::LazyRepeatFrom => MatchLength::Variable,
-            FunctionName::IsBefore => {
-                let FunctionArgument::Expression(base_exp) = &function_call.args[0] else {
-                    unreachable!()
-                };
-                calculate_match_length(base_exp)
-            }
-            FunctionName::IsAfter => {
-                let FunctionArgument::Expression(base_exp) = &function_call.args[0] else {
-                    unreachable!()
-                };
-                let FunctionArgument::Expression(ref_exp) = &function_call.args[1] else {
-                    unreachable!()
-                };
-                calculate_match_length(base_exp) + calculate_match_length(ref_exp)
-            }
-            FunctionName::IsNotBefore => {
-                let FunctionArgument::Expression(base_exp) = &function_call.args[0] else {
-                    unreachable!()
-                };
-                calculate_match_length(base_exp)
-            }
-            FunctionName::IsNotAfter => {
-                let FunctionArgument::Expression(base_exp) = &function_call.args[0] else {
-                    unreachable!()
-                };
-                let FunctionArgument::Expression(ref_exp) = &function_call.args[1] else {
-                    unreachable!()
-                };
-                calculate_match_length(base_exp) + calculate_match_length(ref_exp)
-            }
-            FunctionName::Index => {
-                let FunctionArgument::Expression(base_exp) = &function_call.args[0] else {
-                    unreachable!()
-                };
-                calculate_match_length(base_exp)
-            }
-            FunctionName::Name => {
+            // Lookaround parts are assertions and do not consume characters.
+            FunctionName::IsBefore
+            | FunctionName::IsNotBefore
+            | FunctionName::IsAfter
+            | FunctionName::IsNotAfter
+            | FunctionName::Index
+            | FunctionName::Name => {
                 let FunctionArgument::Expression(base_exp) = &function_call.args[0] else {
                     unreachable!()
                 };
@@ -104,7 +69,7 @@ pub enum MatchLength {
     // Variable length
     Variable,
 
-    // length by char (unicode char codepoint)
+    // Length in Unicode scalar values, not bytes.
     Fixed(usize),
 }
 

@@ -6,8 +6,7 @@
 
 pub const ROUND_QUEUE_LENGTH: usize = 8;
 
-/// `PeekableIter` extends the functionality of `std::iter::Peekable` by allowing
-/// peeking at elements at any specified offset, not just the next one.
+/// Extends `std::iter::Peekable` with fixed-capacity lookahead.
 pub struct PeekableIter<'a, T>
 where
     T: PartialEq,
@@ -20,8 +19,7 @@ impl<'a, T> PeekableIter<'a, T>
 where
     T: PartialEq,
 {
-    /// Creates a new PeekableIter with the specified buffer size.
-    /// The buffer is pre-filled with elements from the upstream iterator.
+    /// Buffers up to `ROUND_QUEUE_LENGTH` items from the upstream iterator.
     pub fn new(upstream: &'a mut dyn Iterator<Item = T>) -> Self {
         let mut buffer = RoundQueue::new();
 
@@ -34,8 +32,7 @@ where
         Self { upstream, buffer }
     }
 
-    /// Returns a reference to the element at the specified offset in the buffer,
-    /// or None if that position is empty. The offset must be less than the buffer size.
+    /// Looks ahead by `offset` items; panics if `offset >= ROUND_QUEUE_LENGTH`.
     pub fn peek(&self, offset: usize) -> Option<&T> {
         assert!(offset < ROUND_QUEUE_LENGTH);
         self.buffer.peek(offset)
@@ -49,9 +46,7 @@ where
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // Remove and return the next value from the buffer.
-        // The buffer is pre-filled during initialization, so we always dequeue first,
-        // then fetch the next value from the upstream iterator and enqueue it.
+        // Refill only after removing the oldest buffered item.
         let value = self.buffer.dequeue();
 
         let next_value = self.upstream.next();
@@ -61,7 +56,7 @@ where
     }
 }
 
-/// A fixed-size circular queue used for buffering elements in PeekableIter.
+/// Fixed-size circular buffer for `PeekableIter` lookahead.
 struct RoundQueue<T>
 where
     T: PartialEq,
@@ -84,8 +79,7 @@ where
         }
     }
 
-    /// Adds a value to the queue at the current write position.
-    /// Advances the write position, wrapping around if necessary.
+    /// Overwrites the next slot, wrapping at the buffer's end.
     pub fn enqueue(&mut self, value: Option<T>) {
         self.data[self.position_write] = value;
 
@@ -95,8 +89,7 @@ where
         }
     }
 
-    /// Removes and returns the value at the current read position.
-    /// Advances the read position, wrapping around if necessary.
+    /// Takes the next slot, wrapping at the buffer's end.
     pub fn dequeue(&mut self) -> Option<T> {
         let value = self.data[self.position_read].take();
 
@@ -108,8 +101,7 @@ where
         value
     }
 
-    /// Returns a reference to the value at the given offset from the current read position,
-    /// or None if the slot is empty. The offset must be less than the queue size.
+    /// Reads relative to the next slot; panics if `offset >= ROUND_QUEUE_LENGTH`.
     pub fn peek(&self, offset: usize) -> Option<&T> {
         assert!(offset < ROUND_QUEUE_LENGTH);
 

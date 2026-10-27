@@ -179,9 +179,7 @@ impl Parser<'_> {
         // |__ current, None or Some(...)
         // ```
 
-        // Parsing proceeds from the lowest-precedence form to the highest.
-        // Each layer delegates to the next tighter layer and then folds its own
-        // operator on top.
+        // Each precedence level delegates to the next tighter level.
         //
         // Lower precedence, parsed later:
         // 1. binary expressions (logic or)
@@ -204,23 +202,7 @@ impl Parser<'_> {
         while self.peek_token_and_equals(0, &Token::LogicOr) {
             self.next_token(); // consume "||"
 
-            // Operator associativity:
-            //
-            // - https://en.wikipedia.org/wiki/Operator_associativity
-            // - https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B#Operator_precedence
-            //
-            // Representation:
-            // - left-associative (left-to-right associative)
-            //   `a || b || c -> (a || b) || c`
-            // - right-associative (right-to-left associative)
-            //   `a || b || c -> a || (b || c)`
-            //
-            // Call `parse_expression` for right-to-left associative parsing, for example:
-            // `let right = self.parse_expression()?;`
-            // Or call `parse_named_capture` for left-to-right associative parsing, for example:
-            // `let right = self.parse_named_capture()?;`
-            //
-            // currently right-associative is adopted for efficiency.
+            // Recursing on the right makes `a || b || c` parse as `a || (b || c)`.
 
             let right = self.parse_expression()?;
             let expression = Expression::Or(Box::new(left), Box::new(right));
@@ -246,8 +228,7 @@ impl Parser<'_> {
                     unreachable!();
                 };
 
-                // Naming an indexed capturing should not produce `Name(Index(expr))`.
-                // Named capturing implies indexed capturing semantics.
+                // Naming an indexed capture must not create a second capture group.
                 let index_capture_expr = fc.args.remove(0);
                 let expression = Expression::FunctionCall(Box::new(FunctionCall {
                     name: FunctionName::Name,
@@ -279,8 +260,7 @@ impl Parser<'_> {
             let expression = self.parse_notation_and_method_call()?;
 
             if matches!(&expression, Expression::FunctionCall(f) if f.name == FunctionName::Name) {
-                // Named capturing records both the span and the name,
-                // so an extra indexed capturing wrapper would be redundant.
+                // Named captures already have indices; another wrapper would duplicate the group.
                 Ok(expression)
             } else {
                 // Wrap the expression in an indexed capturing.
@@ -436,6 +416,7 @@ impl Parser<'_> {
         let additional_args = self.continue_parse_function_arguments()?;
         args.extend(additional_args);
 
+        let args = check_function_arguments(name, args, &identifier, self.last_range)?;
         let function_call = FunctionCall { name, args };
         Ok(function_call)
     }
@@ -509,8 +490,7 @@ impl Parser<'_> {
                         if id != "char_any"
                             && PresetCharSetName::try_from(id.as_str()).is_err() =>
                     {
-                        // A bare identifier that is neither a function call nor a
-                        // literal name is treated as a named backreference.
+                        // Bare names that are not built-in literals are named backreferences.
                         let name = id.to_owned();
                         self.next_token(); // consume identifier
                         Expression::BackReference(BackReference::Name(name))
@@ -559,11 +539,7 @@ impl Parser<'_> {
 
         self.consume_closing_parenthesis()?; // consume ")"
 
-        // Collapse single-element groups. This keeps macro expansion from
-        // introducing extra group nodes that do not affect semantics.
-        //
-        // - `(foo)` -> `foo`
-        // - `((foo, bar))` -> `(foo, bar)`
+        // Single-element groups are redundant, including those introduced by macro expansion.
         if expressions.len() == 1 {
             let expression = expressions.remove(0);
             Ok(expression)
@@ -591,6 +567,7 @@ impl Parser<'_> {
         })?;
 
         let args = self.continue_parse_function_arguments()?;
+        let args = check_function_arguments(name, args, &identifier, self.last_range)?;
         let function_call = FunctionCall { name, args };
 
         Ok(Expression::FunctionCall(Box::new(function_call)))
@@ -774,6 +751,83 @@ impl Parser<'_> {
     }
 }
 
+#[derive(PartialEq)]
+enum ArgumentKind {
+    Expression,
+    Number,
+    Identifier,
+}
+
+/// Validates function arguments, treating bare names in expression positions as backreferences.
+fn check_function_arguments(
+    name: FunctionName,
+    args: Vec<FunctionArgument>,
+    function_name: &str,
+    range: Range,
+) -> Result<Vec<FunctionArgument>, AnreError> {
+    use ArgumentKind::{Expression as Exp, Identifier as Id, Number as Num};
+
+    let signature: &[ArgumentKind] = match name {
+        FunctionName::IsStart
+        | FunctionName::IsEnd
+        | FunctionName::IsBound
+        | FunctionName::IsNotBound => &[],
+        FunctionName::Optional
+        | FunctionName::OneOrMore
+        | FunctionName::ZeroOrMore
+        | FunctionName::LazyOptional
+        | FunctionName::LazyOneOrMore
+        | FunctionName::LazyZeroOrMore
+        | FunctionName::Index => &[Exp],
+        FunctionName::Repeat
+        | FunctionName::RepeatFrom
+        | FunctionName::LazyRepeat
+        | FunctionName::LazyRepeatFrom => &[Exp, Num],
+        FunctionName::RepeatRange | FunctionName::LazyRepeatRange => &[Exp, Num, Num],
+        FunctionName::IsBefore
+        | FunctionName::IsNotBefore
+        | FunctionName::IsAfter
+        | FunctionName::IsNotAfter => &[Exp, Exp],
+        FunctionName::Name => &[Exp, Id],
+    };
+
+    let mismatch = || {
+        let expected = signature
+            .iter()
+            .map(|kind| match kind {
+                Exp => "expression",
+                Num => "number",
+                Id => "identifier",
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        AnreError::MessageWithRange(
+            format!(
+                "Function \"{}\" expects arguments ({}).",
+                function_name, expected
+            ),
+            range,
+        )
+    };
+
+    if args.len() != signature.len() {
+        return Err(mismatch());
+    }
+
+    args.into_iter()
+        .zip(signature)
+        .map(|(arg, kind)| match (arg, kind) {
+            (FunctionArgument::Identifier(id), Exp) => Ok(FunctionArgument::Expression(
+                Expression::BackReference(BackReference::Name(id)),
+            )),
+            (arg @ FunctionArgument::Expression(_), Exp)
+            | (arg @ FunctionArgument::Number(_), Num)
+            | (arg @ FunctionArgument::Identifier(_), Id) => Ok(arg),
+            _ => Err(mismatch()),
+        })
+        .collect()
+}
+
 enum Repetition {
     Repeat(usize),
     RepeatFrom(usize),
@@ -801,7 +855,7 @@ impl TryFrom<&str> for FunctionName {
 
     fn try_from(name: &str) -> Result<Self, Self::Error> {
         match name {
-            // Greedy Quantifier
+            // Greedy quantifiers
             "optional" => Ok(Self::Optional),
             "one_or_more" => Ok(Self::OneOrMore),
             "zero_or_more" => Ok(Self::ZeroOrMore),
@@ -809,7 +863,7 @@ impl TryFrom<&str> for FunctionName {
             "repeat_range" => Ok(Self::RepeatRange),
             "repeat_from" => Ok(Self::RepeatFrom),
 
-            // Lazy Quantifier
+            // Lazy quantifiers
             "lazy_optional" => Ok(Self::LazyOptional),
             "lazy_one_or_more" => Ok(Self::LazyOneOrMore),
             "lazy_zero_or_more" => Ok(Self::LazyZeroOrMore),
@@ -1273,7 +1327,7 @@ repeat('a', 3){5..7}
             r#"index(optional(repeat('a', 3)))"#
         );
 
-        // Function style indexed capturing
+        // Function-style indexed capturing
         assert_eq!(
             parse_from_str(
                 r#"
@@ -1357,7 +1411,7 @@ char_digit.index()
             r#"(name(char_digit, a), 'x', a)"#
         );
 
-        // Function style named capturing
+        // Function-style named capturing
         assert_eq!(
             parse_from_str(
                 r#"
@@ -1508,7 +1562,7 @@ char_digit.name(x)
             r#"(repeat(("foo", char_digit), 3), ('b', repeat("bar", 5)), is_end())"#
         );
 
-        // escape nested group
+        // collapse nested group
         assert_eq!(
             parse_from_str(
                 r#"
@@ -1603,7 +1657,7 @@ char_digit.name(x)
             r#"('a', index(repeat_range('b', 3, 5)), index(repeat_range(('x', char_digit), 7, 11)))"#
         );
 
-        // Quantifier on name capturing group
+        // Quantifier on named capturing group
         assert_eq!(
             parse_from_str(
                 r#"
@@ -1619,7 +1673,7 @@ char_digit.name(x)
             r#"('a', optional(name('b', foo)), optional(name(('x', char_digit), bar)))"#
         );
 
-        // Repetition on name capturing group
+        // Repetition on named capturing group
         assert_eq!(
             parse_from_str(
                 r#"
@@ -1689,7 +1743,7 @@ define D (A || B || 'd')
             parse_from_str(
                 r#"
 /**
- * Decimal Numbers Regular Expression
+ * Decimal number pattern
  *
  * Examples:
  *
@@ -1709,7 +1763,7 @@ char_digit.one_or_more()
             parse_from_str(
                 r#"
 /**
- * Hex Numbers Regular Expression
+ * Hexadecimal number pattern
  *
  * Examples:
  *
@@ -1723,7 +1777,7 @@ char_digit.one_or_more()
     // The prefix "0x"
     "0x"
 
-    // The hex digits
+    // Hexadecimal digits
     ['0'..'9', 'a'..'f', 'A'..'F'].one_or_more()
 )
 "#,
@@ -1737,7 +1791,7 @@ char_digit.one_or_more()
             parse_from_str(
                 r#"
 /**
- * Email Address Validation Regular Expression
+ * Email address validation
  *
  * Examples:
  *
@@ -1749,13 +1803,13 @@ char_digit.one_or_more()
  */
 
 (
-    // Asserts that the current is the first character
+    // Anchor the match at the start of the input.
     is_start()
 
-    // User name
+    // Local part
     [char_word, '.', '-'].one_or_more()
 
-    // Sub-address
+    // Optional subaddress
     ('+', [char_word, '-'].one_or_more()).optional()
 
     // The separator
@@ -1770,7 +1824,7 @@ char_digit.one_or_more()
     // Top-level domain
     ['a'..'z'].repeat_from(2)
 
-    // Asserts that the current is the last character
+    // Anchor the match at the end of the input.
     is_end()
 )
 "#,
@@ -1789,7 +1843,7 @@ is_end())"
         let ipv4_regex = parse_from_str(
             r#"
 /**
- * IPv4 Address Validation Regular Expression
+ * IPv4 address validation
  */
 
 define num_25x ("25", ['0'..'5'])
@@ -1817,7 +1871,7 @@ define part (num_25x || num_2xx || num_1xx || num_xx || num_x)
             parse_from_str(
                 r#"
 /**
- * Simple HTML Tag Regular Expression
+ * Simple HTML tag pattern
  */
 
 (

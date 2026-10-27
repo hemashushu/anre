@@ -4,31 +4,30 @@
 // the Mozilla Public License version 2.0 and additional exceptions.
 // For more details, see the LICENSE, LICENSE.additional, and CONTRIBUTING files.
 
-// Regular Expression syntax summary:
+// Traditional regular expression syntax summary:
 //
-// Meta characters:
+// Metacharacters:
 //
 // | Meta      | Description                                  |
 // |-----------|----------------------------------------------|
 // | `[...]`   | Character set                                |
 // | `[^...]`  | Negative character set                       |
-// | `{`m}     | Exact repetition (m times)                   |
-// | `{`m,n}   | Repetition range (from m to n)               |
-// | `{`m,}    | Repetition from m to infinity                |
+// | `{m}`     | Exactly m repetitions                        |
+// | `{m,n}`   | Between m and n repetitions, inclusive        |
+// | `{m,}`    | At least m repetitions                       |
 // | `(...)`   | Grouping with indexed capturing                  |
 // | `*`       | Zero or more repetitions                     |
 // | `+`       | One or more repetitions                      |
 // | `?`       | Optional or lazy repetition                  |
 // | `|`       | Logical OR                                   |
-// | `^`       | Start-of-line assertion                      |
-// | `$`       | End-of-line assertion                        |
+// | `^`       | Start-of-input assertion                     |
+// | `$`       | End-of-input assertion                       |
 // | `.`       | Any character except newline (`\r` and `\n`) |
 // | `\...`    | Escape character for special symbols         |
 //
-// About the meta characters escaping:
+// Escaping metacharacters:
 //
-// Meta characters `( ) { } [ ] + * ? . | ^ $ \` must be escaped when
-// they are used as literal,
+// Escape `( ) { } [ ] + * ? . | ^ $ \` to match them literally.
 //
 // For example:
 //
@@ -36,13 +35,10 @@
 // - `\*`
 // - `\\`
 //
-// In character sets, only `]` and `\` need escaping, and
-// the hyphen `-` must be escaped unless it is the first or the
-// last character in the set,
+// In character sets, escape `]` and `\`; place a literal hyphen first or last.
 //
 // For example:
 //
-// - `[a\-b]`
 // - `[ab-]`
 // - `[-ab]`
 //
@@ -67,11 +63,11 @@
 //
 // | Preset char | Description                             |
 // |-------------|-----------------------------------------|
-// | `\w`        | Alphanumeric characters: `[a-zA-Z0-9_]` |
+// | `\w`        | ASCII word characters: `[a-zA-Z0-9_]`   |
 // | `\W`        | Negated \w: `[^\w]`                     |
 // | `\d`        | Digits: `[0-9]`                         |
 // | `\D`        | Negated \d: `[^\d]`                     |
-// | `\s`        | Whitespace characters: `[ \t\r\n\v\f]`  |
+// | `\s`        | Whitespace characters: `[ \t\r\n]`      |
 // | `\S`        | Negated \s: `[^\s]`                     |
 //
 // Word boundary assertions:
@@ -178,8 +174,13 @@ impl<'a> Lexer<'a> {
 
     /// Pushes the current input position without consuming a character.
     fn push_peek_position_into_stack(&mut self) {
-        let position = *self.peek_position(0).unwrap();
+        let position = self.current_position();
         self.position_stack.push(position);
+    }
+
+    /// Position of the next character, or of the last character at the end of input.
+    fn current_position(&self) -> Position {
+        self.peek_position(0).copied().unwrap_or(self.last_position)
     }
 
     /// Pops a previously saved token start position.
@@ -247,7 +248,7 @@ impl Lexer<'_> {
                             match self.peek_char(0).unwrap() {
                                 ':' => {
                                     // non-capturing
-                                    self.next_char(); // consule ':'
+                                    self.next_char(); // consume ':'
                                     token_with_ranges.push(TokenWithRange {
                                         token: Token::NonCaptureGroupStart,
                                         range: Range::new(
@@ -259,7 +260,7 @@ impl Lexer<'_> {
                                 '<' => {
                                     match self.peek_char(1) {
                                         Some('=') => {
-                                            // look-behind group
+                                            // lookbehind group
                                             self.next_char(); // consume '<'
                                             self.next_char(); // consume '='
                                             token_with_ranges.push(TokenWithRange {
@@ -271,7 +272,7 @@ impl Lexer<'_> {
                                             });
                                         }
                                         Some('!') => {
-                                            // negative look-behind group
+                                            // negative lookbehind group
                                             self.next_char(); // consume '<'
                                             self.next_char(); // consume '='
                                             token_with_ranges.push(TokenWithRange {
@@ -296,8 +297,8 @@ impl Lexer<'_> {
                                     }
                                 }
                                 '=' => {
-                                    // look-ahead group
-                                    self.next_char(); // consule '='
+                                    // lookahead group
+                                    self.next_char(); // consume '='
                                     token_with_ranges.push(TokenWithRange {
                                         token: Token::LookAheadGroupStart,
                                         range: Range::new(
@@ -307,8 +308,8 @@ impl Lexer<'_> {
                                     });
                                 }
                                 '!' => {
-                                    // negative look-ahead group
-                                    self.next_char(); // consule '!'
+                                    // negative lookahead group
+                                    self.next_char(); // consume '!'
                                     token_with_ranges.push(TokenWithRange {
                                         token: Token::LookAheadNegativeGroupStart,
                                         range: Range::new(
@@ -550,8 +551,7 @@ impl Lexer<'_> {
         //  |____ // merge from here
         // ```
         //
-        // Note: the character range operator '-' must be escaped when it is not the first or last char
-        // in the charset, so there won't be any ambiguity when scanning for char ranges.
+        // An interior hyphen forms a range; leading and trailing hyphens remain literal.
 
         if token_with_ranges.len() > 4 {
             // reverse scanning
@@ -625,12 +625,12 @@ impl Lexer<'_> {
                         Token::Char('\t')
                     }
                     'n' => {
-                        // new line character (line feed, LF, ascii 10)
+                        // Line feed (LF, ASCII 10)
                         self.next_char();
                         Token::Char('\n')
                     }
                     'r' => {
-                        // carriage return (CR, ascii 13)
+                        // Carriage return (CR, ASCII 13)
                         self.next_char();
                         Token::Char('\r')
                     }
@@ -648,7 +648,7 @@ impl Lexer<'_> {
                             ));
                         }
                     }
-                    // meta chars
+                    // metacharacters
                     '(' | ')' | '{' | '}' | '[' | ']' | '+' | '*' | '?' | '.' | '|' | '^' | '$'
                     | '\\' => {
                         let c = *current_char;
@@ -667,12 +667,12 @@ impl Lexer<'_> {
                         self.next_char();
                         Token::WordBoundaryAssertion(c == 'B')
                     }
-                    // back reference by index
+                    // backreference by index
                     '1'..='9' => {
                         let num = self.lex_number_decimal()?;
                         Token::BackReferenceNumber(num)
                     }
-                    // invalid back reference group number 0
+                    // invalid backreference group number 0
                     '0' => {
                         return Err(AnreError::MessageWithRange(
                             "Cannot back-reference group 0.".to_string(),
@@ -682,7 +682,7 @@ impl Lexer<'_> {
                             ),
                         ));
                     }
-                    // back reference by name
+                    // backreference by name
                     'k' => {
                         self.next_char(); // consume 'k'
 
@@ -694,7 +694,7 @@ impl Lexer<'_> {
                                 "Missing opening angle bracket for group name.".to_string(),
                                 Range::new(
                                     &self.pop_position_from_stack(),
-                                    self.peek_position(0).unwrap(),
+                                    &self.current_position(),
                                 ),
                             ));
                         }
@@ -744,12 +744,12 @@ impl Lexer<'_> {
                         Token::Char('\t')
                     }
                     'n' => {
-                        // new line character (line feed, LF, ascii 10)
+                        // Line feed (LF, ASCII 10)
                         self.next_char();
                         Token::Char('\n')
                     }
                     'r' => {
-                        // carriage return (CR, ascii 13)
+                        // Carriage return (CR, ASCII 13)
                         self.next_char();
                         Token::Char('\r')
                     }
@@ -768,11 +768,9 @@ impl Lexer<'_> {
                         }
                     }
 
-                    // meta chars
+                    // metacharacters
                     //
-                    // in the charset, only the meta char ']', '\' and (non-first or non-last) '-'
-                    // are required to be escaped,
-                    // but the escapes of meta chars are also supported for consistency.
+                    // Other metacharacter escapes are accepted for consistency outside character sets.
                     '(' | ')' | '{' | '}' | '[' | ']' | '+' | '*' | '?' | '.' | '|' | '^' | '$'
                     | '\\' => {
                         let c = *current_char;
@@ -785,7 +783,7 @@ impl Lexer<'_> {
                         self.next_char();
                         Token::PresetCharSet(c)
                     }
-                    // negative preset charsets, only positive preset charsets are supported
+                    // Only non-negated predefined classes are allowed inside character sets.
                     'W' | 'D' | 'S' => {
                         return Err(AnreError::MessageWithRange(
                             format!(
@@ -849,7 +847,7 @@ impl Lexer<'_> {
 
         self.push_peek_position_into_stack();
 
-        self.next_char(); // comsume char '{'
+        self.next_char(); // consume char '{'
 
         let mut codepoint_buffer = String::new();
 
@@ -940,37 +938,7 @@ impl Lexer<'_> {
                         self.next_char(); // consume char
                     }
                     '\u{a0}'..='\u{d7ff}' | '\u{e000}'..='\u{10ffff}' => {
-                        // A char is a ‘Unicode scalar value’, which is any ‘Unicode code point’ other than a surrogate code point.
-                        // This has a fixed numerical definition: code points are in the range 0 to 0x10FFFF,
-                        // inclusive. Surrogate code points, used by UTF-16, are in the range 0xD800 to 0xDFFF.
-                        //
-                        // check out:
-                        // https://doc.rust-lang.org/std/primitive.char.html
-                        //
-                        // CJK chars: '\u{4e00}'..='\u{9fff}'
-                        // for complete CJK chars, check out Unicode standard
-                        // Ch. 18.1 Han CJK Unified Ideographs
-                        //
-                        // summary:
-                        // Block Location Comment
-                        // CJK Unified Ideographs 4E00–9FFF Common
-                        // CJK Unified Ideographs Extension A 3400–4DBF Rare
-                        // CJK Unified Ideographs Extension B 20000–2A6DF Rare, historic
-                        // CJK Unified Ideographs Extension C 2A700–2B73F Rare, historic
-                        // CJK Unified Ideographs Extension D 2B740–2B81F Uncommon, some in current use
-                        // CJK Unified Ideographs Extension E 2B820–2CEAF Rare, historic
-                        // CJK Unified Ideographs Extension F 2CEB0–2EBEF Rare, historic
-                        // CJK Unified Ideographs Extension G 30000–3134F Rare, historic
-                        // CJK Unified Ideographs Extension H 31350–323AF Rare, historic
-                        // CJK Compatibility Ideographs F900–FAFF Duplicates, unifiable variants, corporate characters
-                        // CJK Compatibility Ideographs Supplement 2F800–2FA1F Unifiable variants
-                        //
-                        // https://www.unicode.org/versions/Unicode15.0.0/ch18.pdf
-                        // https://en.wikipedia.org/wiki/CJK_Unified_Ideographs
-                        // https://www.unicode.org/versions/Unicode15.0.0/
-                        //
-                        // see also
-                        // https://www.unicode.org/reports/tr31/tr31-37.html
+                        // Names accept scalar values from U+00A0 upward, not just Unicode letters.
 
                         name_buffer.push(*current_char);
                         self.next_char(); // consume char
@@ -1183,7 +1151,7 @@ mod tests {
             vec![Token::Char('文')]
         );
 
-        // escaped meta chars
+        // escaped metacharacters
         assert_eq!(
             lex_from_str_without_location(r#"\(\)\{\}\[\]\+\*\?\.\|\^\$"#).unwrap(),
             vec![
@@ -1256,7 +1224,7 @@ mod tests {
             ))
         ));
 
-        // Error: empty unicode escape string
+        // Error: empty Unicode escape string
         // "'\\u{}'"
         //  01 2345     // index
         assert!(matches!(
@@ -1278,7 +1246,7 @@ mod tests {
             ))
         ));
 
-        // Error: invalid unicode code point, digits too much
+        // Error: invalid Unicode code point, too many digits
         // "'\\u{10001111}'"
         //  01 234567890123    // index
         assert!(matches!(
@@ -1300,7 +1268,7 @@ mod tests {
             ))
         ));
 
-        // Error: invalid unicode code point, code point out of range
+        // Error: invalid Unicode code point, code point out of range
         // "'\\u{123456}'"
         //  01 2345678901
         assert!(matches!(
@@ -1322,7 +1290,7 @@ mod tests {
             ))
         ));
 
-        // Error: invalid char in the unicode escape sequence
+        // Error: invalid char in the Unicode escape sequence
         assert!(matches!(
             lex_from_str_without_location("'\\u{12mn}''"),
             Err(AnreError::MessageWithPosition(
@@ -1335,7 +1303,7 @@ mod tests {
             ))
         ));
 
-        // Error: missing the closed brace for unicode escape sequence
+        // Error: missing the closing brace for Unicode escape sequence
         assert!(matches!(
             lex_from_str_without_location("'\\u{1234'"),
             Err(AnreError::MessageWithPosition(
@@ -1348,13 +1316,13 @@ mod tests {
             ))
         ));
 
-        // Error: incomplete unicode escape sequence, encountered EOF
+        // Error: incomplete Unicode escape sequence, encountered EOF
         assert!(matches!(
             lex_from_str_without_location("'\\u{1234"),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // Error: missing left brace for unicode escape sequence
+        // Error: missing the opening brace for Unicode escape sequence
         assert!(matches!(
             lex_from_str_without_location("'\\u1234}'"),
             Err(AnreError::MessageWithPosition(
@@ -1419,7 +1387,7 @@ mod tests {
             ]
         );
 
-        // escaped meta chars
+        // escaped metacharacters
         // note: only ']' is necessary.
         assert_eq!(
             lex_from_str_without_location(r#"[\(\)\{\}\[\]\+\*\?\.\|\^\$\\]"#).unwrap(),
@@ -1443,7 +1411,7 @@ mod tests {
             ]
         );
 
-        // meta chars in charset
+        // metacharacters in charset
         // note: only ']' and '\' are escaped
         assert_eq!(
             lex_from_str_without_location(r#"[(){}[\]+*?.|^$\\]"#).unwrap(),
@@ -1578,7 +1546,7 @@ mod tests {
             ))
         ));
 
-        // Error: unsupported back reference - number
+        // Error: unsupported backreference - number
         assert!(matches!(
             lex_from_str_without_location(r#"[\1]"#),
             Err(AnreError::MessageWithRange(
@@ -1598,7 +1566,7 @@ mod tests {
             ))
         ));
 
-        // Error: unsupported back reference - name
+        // Error: unsupported backreference - name
         assert!(matches!(
             lex_from_str_without_location(r#"[\k<name>]"#),
             Err(AnreError::MessageWithRange(
@@ -1732,7 +1700,7 @@ mod tests {
             ))
         ));
 
-        // Error: expect a number
+        // Error: expected a number
         assert!(matches!(
             lex_from_str(r#"{a}"#),
             Err(AnreError::MessageWithPosition(
@@ -1751,7 +1719,7 @@ mod tests {
             Err(AnreError::UnexpectedEndOfDocument(_,))
         ));
 
-        // Error: expect a number
+        // Error: expected a number
         assert!(matches!(
             lex_from_str(r#"{1,a}"#),
             Err(AnreError::MessageWithPosition(
@@ -1851,12 +1819,12 @@ mod tests {
         assert_eq!(
             lex_from_str(r#"\1\k<e>"#).unwrap(),
             vec![
-                // back reference - number
+                // backreference - number
                 TokenWithRange::new(
                     Token::BackReferenceNumber(1),
                     Range::from_detail(0, 0, 0, 2)
                 ),
-                // back reference - name
+                // backreference - name
                 TokenWithRange::new(
                     Token::BackReferenceName("e".to_string()),
                     Range::from_detail(2, 0, 2, 5)
@@ -1864,7 +1832,7 @@ mod tests {
             ]
         );
 
-        // Error: back reference to group 0
+        // Error: backreference to group 0
         assert!(matches!(
             lex_from_str(r#"(a)b\0"#),
             Err(AnreError::MessageWithRange(
@@ -1884,7 +1852,7 @@ mod tests {
             ))
         ));
 
-        // Error: missing identifier for named back reference
+        // Error: missing identifier for named backreference
         assert!(matches!(
             lex_from_str(r#"\k<>)"#),
             Err(AnreError::MessageWithRange(
@@ -1904,13 +1872,13 @@ mod tests {
             ))
         ));
 
-        // Error: missing '>' for named back reference
+        // Error: missing '>' for named backreference
         assert!(matches!(
             lex_from_str(r#"\k<abc"#),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // Error: missing '<' for named back reference
+        // Error: missing '<' for named backreference
         assert!(matches!(
             lex_from_str(r#"\kabc>"#),
             Err(AnreError::MessageWithRange(
@@ -1936,25 +1904,25 @@ mod tests {
         assert_eq!(
             lex_from_str(r#"(?=a)(?!b)(?<=c)(?<!d)"#).unwrap(),
             vec![
-                // look-ahead
+                // lookahead
                 TokenWithRange::new(Token::LookAheadGroupStart, Range::from_detail(0, 0, 0, 3)),
                 TokenWithRange::new(Token::Char('a'), Range::from_detail(3, 0, 3, 1)),
                 TokenWithRange::new(Token::GroupEnd, Range::from_detail(4, 0, 4, 1)),
-                // look-ahead - negative
+                // lookahead - negative
                 TokenWithRange::new(
                     Token::LookAheadNegativeGroupStart,
                     Range::from_detail(5, 0, 5, 3)
                 ),
                 TokenWithRange::new(Token::Char('b'), Range::from_detail(8, 0, 8, 1)),
                 TokenWithRange::new(Token::GroupEnd, Range::from_detail(9, 0, 9, 1)),
-                // look-behind
+                // lookbehind
                 TokenWithRange::new(
                     Token::LookBehindGroupStart,
                     Range::from_detail(10, 0, 10, 4)
                 ),
                 TokenWithRange::new(Token::Char('c'), Range::from_detail(14, 0, 14, 1)),
                 TokenWithRange::new(Token::GroupEnd, Range::from_detail(15, 0, 15, 1)),
-                // look-behind - negative
+                // lookbehind - negative
                 TokenWithRange::new(
                     Token::LookBehindNegativeGroupStart,
                     Range::from_detail(16, 0, 16, 4)

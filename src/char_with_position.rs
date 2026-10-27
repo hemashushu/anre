@@ -25,7 +25,7 @@ impl CharWithPosition {
     }
 }
 
-/// An iterator that yields each character from the upstream iterator along with its position in the source text.
+/// Attaches zero-based source coordinates to characters from an upstream iterator.
 pub struct CharsWithPositionIter<'a> {
     /// The underlying iterator that provides characters.
     upstream: &'a mut dyn Iterator<Item = char>,
@@ -49,18 +49,14 @@ impl Iterator for CharsWithPositionIter<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         match self.upstream.next() {
             Some(c) => {
-                // Save the current position to associate with the character being returned.
                 let last_position = self.current_position;
 
-                // Advance the absolute character index.
                 self.current_position.index += 1;
 
-                // If the character is a newline, move to the next line and reset the column.
                 if c == '\n' {
                     self.current_position.line += 1;
                     self.current_position.column = 0;
                 } else {
-                    // Otherwise, move to the next column in the current line.
                     self.current_position.column += 1;
                 }
 

@@ -6,7 +6,7 @@
 
 use crate::error::AnreError;
 
-// A struct representing a range of a snippet in the source text.
+// Snippet and highlight coordinates are measured in characters, not bytes.
 //
 // ```diagram
 //                 /-- snippet offset in source text (snippet is a substring of source text)
@@ -28,8 +28,7 @@ struct SnippetAndIndication {
     highlight_length: usize, // The length of the highlight within the snippet.
 }
 
-/// Calculates the snippet and highlight indication based on the position and length
-/// of the highlighted text in the source.
+/// Fits the highlighted range into a snippet with surrounding context.
 fn calculate_snippet_and_indication(
     highlight_text_start_in_source: usize,
     highlight_text_length: usize,
@@ -86,8 +85,7 @@ fn calculate_snippet_and_indication(
     }
 }
 
-/// Generates a formatted error message with a snippet and highlight indication
-/// based on the source text and the error message.
+/// Formats the source snippet and its aligned highlight on separate lines.
 fn generate_error_text_paragraph(
     source_chars: &mut dyn Iterator<Item = char>,
     snippet_and_indication: &SnippetAndIndication,

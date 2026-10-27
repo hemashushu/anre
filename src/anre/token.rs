@@ -11,11 +11,7 @@ pub enum Token {
     // Reserved words in ANRE. Currently `define` and `as`.
     Keyword(String),
 
-    // User-defined or built-in names.
-    //
-    // The lexer accepts ASCII word characters plus Unicode scalar values outside
-    // the surrogate range. Identifiers are used for function names, macro names,
-    // preset charset names, named captures, and backreferences.
+    // Names accept ASCII word characters and scalars from U+00A0 upward, but cannot start with a digit.
     Identifier(String),
 
     // Decimal integer literal used by repetition counts and numeric arguments.

@@ -353,37 +353,7 @@ impl Lexer<'_> {
                     self.next_char(); // consume char
                 }
                 '\u{a0}'..='\u{d7ff}' | '\u{e000}'..='\u{10ffff}' => {
-                    // A char is a ‘Unicode scalar value’, which is any ‘Unicode code point’ other than a surrogate code point.
-                    // This has a fixed numerical definition: code points are in the range 0 to 0x10FFFF,
-                    // inclusive. Surrogate code points, used by UTF-16, are in the range 0xD800 to 0xDFFF.
-                    //
-                    // check out:
-                    // https://doc.rust-lang.org/std/primitive.char.html
-                    //
-                    // CJK chars: '\u{4e00}'..='\u{9fff}'
-                    // for complete CJK chars, check out Unicode standard
-                    // Ch. 18.1 Han CJK Unified Ideographs
-                    //
-                    // | Block                                   | LocRange    | Comment |
-                    // |-----------------------------------------|-------------|---------|
-                    // | CJK Unified Ideographs                  | 4E00–9FFF   | Common                         |
-                    // | CJK Unified Ideographs Extension A      | 3400–4DBF   | Rare                           |
-                    // | CJK Unified Ideographs Extension B      | 20000–2A6DF | Rare, historic                 |
-                    // | CJK Unified Ideographs Extension C      | 2A700–2B73F | Rare, historic                 |
-                    // | CJK Unified Ideographs Extension D      | 2B740–2B81F | Uncommon, some in current use  |
-                    // | CJK Unified Ideographs Extension E      | 2B820–2CEAF | Rare, historic                 |
-                    // | CJK Unified Ideographs Extension F      | 2CEB0–2EBEF | Rare, historic                 |
-                    // | CJK Unified Ideographs Extension G      | 30000–3134F | Rare, historic                 |
-                    // | CJK Unified Ideographs Extension H      | 31350–323AF | Rare, historic                 |
-                    // | CJK Compatibility Ideographs            | F900–FAFF   | Duplicates, unifiable variants, corporate characters |
-                    // | CJK Compatibility Ideographs Supplement | 2F800–2FA1F | Unifiable variants             |
-                    //
-                    // see also:
-                    //
-                    // - https://www.unicode.org/versions/Unicode15.0.0/ch18.pdf
-                    // - https://en.wikipedia.org/wiki/CJK_Unified_Ideographs
-                    // - https://www.unicode.org/versions/Unicode15.0.0/
-                    // - https://www.unicode.org/reports/tr31/tr31-37.html
+                    // Identifiers accept scalar values from U+00A0 upward, not just Unicode letters.
 
                     identifier_buffer.push(*current_char);
                     self.next_char(); // consume char
@@ -493,11 +463,11 @@ impl Lexer<'_> {
                                         '\t'
                                     }
                                     'r' => {
-                                        // carriage return (CR, ascii 13)
+                                        // Carriage return (CR, ASCII 13)
                                         '\r'
                                     }
                                     'n' => {
-                                        // new line character (line feed, LF, ascii 10)
+                                        // Line feed (LF, ASCII 10)
                                         '\n'
                                     }
                                     '0' => {
@@ -666,8 +636,7 @@ impl Lexer<'_> {
         // |_______// current char, validated
         // ```
 
-        // Save the position of the opening quote so the final range covers the
-        // whole literal.
+        // Include both quotes in the token's source range.
         self.push_peek_position_into_stack();
 
         self.next_char(); // consume '"'
@@ -679,8 +648,7 @@ impl Lexer<'_> {
                 Some(current_char) => {
                     match current_char {
                         '\\' => {
-                            // Save the escape start so `unescape_unicode_code_point`
-                            // can reuse the same position stack.
+                            // Unicode escapes reuse this saved start position.
                             self.push_last_position_into_stack();
 
                             // escape chars
@@ -702,11 +670,11 @@ impl Lexer<'_> {
                                             string_buffer.push('\t');
                                         }
                                         'r' => {
-                                            // carriage return (CR, ascii 13)
+                                            // Carriage return (CR, ASCII 13)
                                             string_buffer.push('\r');
                                         }
                                         'n' => {
-                                            // new line character (line feed, LF, ascii 10)
+                                            // Line feed (LF, ASCII 10)
                                             string_buffer.push('\n');
                                         }
                                         '0' => {
@@ -748,8 +716,6 @@ impl Lexer<'_> {
                             self.pop_position_from_stack();
                         }
                         '"' => {
-                            // encounter the closing double quote, which
-                            // means the end of the string literal.
                             break;
                         }
                         _ => {
@@ -783,7 +749,7 @@ impl Lexer<'_> {
         // |_________// current char, validated
         // ```
 
-        // note that the trailing '\n' or '\r\n' does not belong to line comment
+        // Leave the trailing LF or CRLF outside the comment.
 
         self.next_char(); // consume the 1st '/'
         self.next_char(); // consume the 2nd '/'
@@ -1306,13 +1272,13 @@ mod tests {
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // Error: incomplete char, missing the right quote, encountered EOF
+        // Error: incomplete char, missing the closing quote at the end of input
         assert!(matches!(
             lex_from_str("'a"),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // Error: invalid char, expect the right quote, encounter another char
+        // Error: invalid char, expected the closing quote, found another character
         assert!(matches!(
             lex_from_str("'ab"),
             Err(AnreError::MessageWithPosition(
@@ -1325,7 +1291,7 @@ mod tests {
             ))
         ));
 
-        // Error: invalid char, expect the right quote, encounter another char
+        // Error: invalid char, expected the closing quote, found another character
         assert!(matches!(
             lex_from_str("'ab'"),
             Err(AnreError::MessageWithPosition(
@@ -1378,7 +1344,7 @@ mod tests {
             ))
         ));
 
-        // Error: empty unicode escape string
+        // Error: empty Unicode escape string
         // "'\\u{}'"
         //  01 2345     // index
         assert!(matches!(
@@ -1400,7 +1366,7 @@ mod tests {
             ))
         ));
 
-        // Error: invalid unicode code point, digits too much
+        // Error: invalid Unicode code point, too many digits
         // "'\\u{10001111}'"
         //  01 234567890123     // index
         assert!(matches!(
@@ -1422,7 +1388,7 @@ mod tests {
             ))
         ));
 
-        // Error: invalid unicode code point, code point out of range
+        // Error: invalid Unicode code point, code point out of range
         // "'\\u{123456}'"
         //  01 2345678901   // index
         assert!(matches!(
@@ -1444,7 +1410,7 @@ mod tests {
             ))
         ));
 
-        // Error: invalid char in the unicode escape sequence
+        // Error: invalid char in the Unicode escape sequence
         assert!(matches!(
             lex_from_str("'\\u{12mn}''"),
             Err(AnreError::MessageWithPosition(
@@ -1457,7 +1423,7 @@ mod tests {
             ))
         ));
 
-        // Error: missing the closing brace for unicode escape sequence
+        // Error: missing the closing brace for Unicode escape sequence
         assert!(matches!(
             lex_from_str("'\\u{1234'"),
             Err(AnreError::MessageWithPosition(
@@ -1470,13 +1436,13 @@ mod tests {
             ))
         ));
 
-        // Error: incomplete unicode escape sequence, encountered EOF
+        // Error: incomplete Unicode escape sequence, encountered EOF
         assert!(matches!(
             lex_from_str("'\\u{1234"),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // Error: missing left brace for unicode escape sequence
+        // Error: missing the opening brace for Unicode escape sequence
         assert!(matches!(
             lex_from_str("'\\u1234}'"),
             Err(AnreError::MessageWithPosition(
@@ -1562,19 +1528,19 @@ mod tests {
             ]
         );
 
-        // Error: incomplete string, missing the closed quote
+        // Error: incomplete string, missing the closing quote
         assert!(matches!(
             lex_from_str("\"abc"),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // Error: incomplete string, missing the closed quote, ends with \n
+        // Error: incomplete string, missing the closing quote, ends with \n
         assert!(matches!(
             lex_from_str("\"abc\n"),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // Error: incomplete string, missing the closed quote, ends with whitespaces/other chars
+        // Error: incomplete string, missing the closing quote, ends with whitespace or other characters
         assert!(matches!(
             lex_from_str("\"abc\n   "),
             Err(AnreError::UnexpectedEndOfDocument(_))
@@ -1606,7 +1572,7 @@ mod tests {
             ))
         ));
 
-        // Error: empty unicode escape string
+        // Error: empty Unicode escape string
         // "abc\u{}"
         // 012345678    // index
         assert!(matches!(
@@ -1628,7 +1594,7 @@ mod tests {
             ))
         ));
 
-        // Error: invalid unicode code point, too many digits
+        // Error: invalid Unicode code point, too many digits
         // "abc\u{1000111}xyz"
         // 0123456789023456789  // index
         assert!(matches!(
@@ -1650,7 +1616,7 @@ mod tests {
             ))
         ));
 
-        // Error: invalid unicode code point, code point out of range
+        // Error: invalid Unicode code point, code point out of range
         // "abc\u{123456}xyz"
         // 012345678901234567   // index
         assert!(matches!(
@@ -1672,7 +1638,7 @@ mod tests {
             ))
         ));
 
-        // Error: invalid char in the unicode escape sequence
+        // Error: invalid char in the Unicode escape sequence
         assert!(matches!(
             lex_from_str(r#""abc\u{12mn}xyz""#),
             Err(AnreError::MessageWithPosition(
@@ -1685,7 +1651,7 @@ mod tests {
             ))
         ));
 
-        // Error: missing the closing brace for unicode escape sequence
+        // Error: missing the closing brace for Unicode escape sequence
         assert!(matches!(
             lex_from_str(r#""abc\u{1234""#),
             Err(AnreError::MessageWithPosition(
@@ -1698,13 +1664,13 @@ mod tests {
             ))
         ));
 
-        // Error: incomplete unicode escape sequence, encountered EOF
+        // Error: incomplete Unicode escape sequence, encountered EOF
         assert!(matches!(
             lex_from_str(r#""abc\u{1234"#),
             Err(AnreError::UnexpectedEndOfDocument(_))
         ));
 
-        // Error: missing left brace for unicode escape sequence
+        // Error: missing the opening brace for Unicode escape sequence
         assert!(matches!(
             lex_from_str(r#""abc\u1234}xyz""#),
             Err(AnreError::MessageWithPosition(

@@ -12,7 +12,7 @@ pub struct Position {
 }
 
 impl Position {
-    /// Creates a new Position with the given character index, line, and column.
+    /// Uses zero-based character coordinates, not byte offsets.
     pub fn new(index: usize, line: usize, column: usize) -> Self {
         Self {
             index,

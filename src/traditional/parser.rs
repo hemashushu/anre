@@ -144,39 +144,11 @@ impl Parser<'_> {
 
         let mut left = self.parse_consequent_expression()?;
 
-        // In the traditional regular expressions, "groups" are implied
-        // on both sides of the "logic or" operator ("|").
-        //
-        // The | operator has the lowest precedence in a regular expression.
-        // If you want to use a disjunction as a part of a bigger pattern,
-        // you must group it.
-        //
-        // For example:
-        //
-        // "ab|cd" == "(ab)|(cd)" != "a(b|c)d"
-        //
-        // ref:
-        // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Disjunction
+        // Alternation binds less tightly than concatenation: `ab|cd` means `(?:ab)|(?:cd)`.
         while let Some(Token::LogicOr) = self.peek_token(0) {
             self.next_token(); // consume "||"
 
-            // Operator associativity:
-            //
-            // - https://en.wikipedia.org/wiki/Operator_associativity
-            // - https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B#Operator_precedence
-            //
-            // Representation:
-            // - left-associative (left-to-right associative)
-            //   `a || b || c -> (a || b) || c`
-            // - right-associative (right-to-left associative)
-            //   `a || b || c -> a || (b || c)`
-            //
-            // Call `parse_expression` for right-to-left associative parsing, for example:
-            // `let right = self.parse_expression()?;`
-            // Or call `parse_consequent_expression` for left-to-right associative parsing, for example:
-            // `let right = self.parse_consequent_expression()?;`
-            //
-            // currently right-associative is adopted for efficiency.
+            // Recursing on the right makes `a|b|c` parse as `a|(?:b|c)`.
 
             let right = self.parse_expression()?;
             let expression = Expression::Or(Box::new(left), Box::new(right));
@@ -194,8 +166,7 @@ impl Parser<'_> {
         // | current, None or Some(...)
         // ```
 
-        // In the traditional regular expressions, consecutive expressions
-        // are implicit groups.
+        // Concatenation is represented by a non-capturing AST group.
         //
         // For example:
         //
@@ -206,9 +177,7 @@ impl Parser<'_> {
         let mut expressions = vec![];
         while let Some(token) = self.peek_token(0) {
             match token {
-                // collect expressions until the next token is a logic or operator
-                // or a group end, which cannot be implicitly grouped with
-                // the previous expressions.
+                // Alternation and closing parentheses terminate the current sequence.
                 Token::LogicOr | Token::GroupEnd => {
                     break;
                 }
@@ -226,7 +195,7 @@ impl Parser<'_> {
             ));
         }
 
-        // Merge continuous `Literal::Char` to `Literal::String`
+        // Merge adjacent character literals into strings to reduce matching transitions.
         let mut cursor = expressions.len() - 1;
         while cursor > 0 {
             if matches!(expressions[cursor], Expression::Literal(Literal::Char(_))) {
@@ -242,7 +211,7 @@ impl Parser<'_> {
                     begin_index -= 1;
                 }
 
-                // found continuous chars
+                // found consecutive character literals
                 if cursor - begin_index > 0 {
                     let s: String = expressions
                         .drain(begin_index..=cursor)
@@ -260,7 +229,7 @@ impl Parser<'_> {
                         // reached the beginning of the expression list
                         break;
                     } else {
-                        // search for the next continuous chars
+                        // search for the next run of character literals
                         cursor = begin_index - 1;
                     }
                 } else {
@@ -271,7 +240,7 @@ impl Parser<'_> {
             }
         }
 
-        // escape the group if it contains only one element
+        // A single-expression sequence needs no group wrapper.
         if expressions.len() == 1 {
             let expression = expressions.remove(0);
             Ok(expression)
@@ -282,7 +251,7 @@ impl Parser<'_> {
     }
 
     fn parse_look_ahead_assertion(&mut self) -> Result<Expression, AnreError> {
-        // look around assertions:
+        // lookaround assertions:
         // - `(?=...)`  Positive lookahead
         // - `(?!...)`  Negative lookahead
         //
@@ -384,8 +353,7 @@ impl Parser<'_> {
                             }
                         }
                         Repetition::RepeatRange(m, n) => {
-                            // `{m..m}` is equivalent to a fixed repetition, so it reuses
-                            // the same AST form as `{m}`.
+                            // Equal bounds use the same AST representation as a fixed count.
                             if m > n {
                                 let range = self.peek_range(0).unwrap();
                                 return Err(AnreError::MessageWithRange(
@@ -428,9 +396,9 @@ impl Parser<'_> {
         // - literal
         // - line assertion
         // - boundary assertion
-        // - look around assertion
+        // - lookaround assertion
         // - explicit group
-        // - back reference
+        // - backreference
         let expression = match self.peek_token(0).unwrap() {
             Token::LineBoundaryAssertionStart => {
                 self.next_token(); // consume '^'
@@ -463,7 +431,7 @@ impl Parser<'_> {
                 }
             }
             token @ (Token::LookBehindGroupStart | Token::LookBehindNegativeGroupStart) => {
-                // look around assertions:
+                // lookaround assertions:
                 // - `(?<=...)` Positive lookbehind
                 // - `(?<!...)` Negative lookbehind
                 //
@@ -692,7 +660,7 @@ mod tests {
             assert_eq!(program.to_string(), r#"'a'"#);
         }
 
-        // Merge continuous chars.
+        // Merge adjacent character literals.
         {
             let program = parse_from_str(r#".foo"#).unwrap();
 
@@ -947,7 +915,7 @@ mod tests {
             r#"(repeat(("foo", char_digit), 3), ('b', repeat("bar", 5)), is_end())"#
         );
 
-        // escape nested groups
+        // collapse nested groups
         assert_eq!(
             parse_from_str(r#"(?:(?:a\db))"#,).unwrap().to_string(),
             r#"('a', char_digit, 'b')"#

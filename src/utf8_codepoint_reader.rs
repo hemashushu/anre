@@ -4,20 +4,7 @@
 // the Mozilla Public License version 2.0 and additional exceptions.
 // For more details, see the LICENSE, LICENSE.additional, and CONTRIBUTING files.
 
-/// Read the Unicode code point starting at `position` in a UTF-8 byte slice.
-///
-/// Returns `(codepoint: u32, byte_length: usize)` where `codepoint` is the
-/// Unicode scalar value (or the raw byte value for invalid starts) and
-/// `byte_length` is the number of bytes consumed for that codepoint.
-///
-/// This function is intentionally minimal and designed for fast iteration
-/// over a byte buffer. It assumes the caller provides a valid index within
-/// `data`. The implementation expects well-formed UTF-8 but will fall back
-/// to returning the raw first byte as a single-byte codepoint when the
-/// start byte does not indicate a valid UTF-8 sequence starter.
-///
-/// The returned `codepoint` uses the Unicode code point numeric value
-/// (same as `char as u32` for valid code points).
+/// Returns `(codepoint, byte_length)`; callers must provide a valid UTF-8 character offset within `data`.
 #[inline]
 pub fn next_codepoint(data: &[u8], position: usize) -> (u32, usize) {
     // UTF-8 byte layouts (bits shown as groups; high-order bits on the left):
@@ -27,8 +14,7 @@ pub fn next_codepoint(data: &[u8], position: usize) -> (u32, usize) {
     // 3 bytes: 1110_dddd, 10_cccc_bb, 10_bb_aaaa
     // 4 bytes: 11110_f_ee, 10_ee_dddd, 10_cccc_bb, 10_bb_aaaa
     //
-    // We mask and shift the low payload bits (x) from each byte and combine
-    // them to form the resulting Unicode code point.
+    // Payload bits are combined after removing each byte's UTF-8 prefix.
     // Reference: https://en.wikipedia.org/wiki/UTF-8
 
     let mut code: u32 = 0;
@@ -62,11 +48,7 @@ pub fn next_codepoint(data: &[u8], position: usize) -> (u32, usize) {
             4
         }
         _ => {
-            // Any byte whose leading ones count is 1 (0b10xxxxxx) is a
-            // continuation byte and therefore cannot be a valid UTF-8 start.
-            // Similarly, values with leading ones > 4 are not valid UTF-8
-            // starters. In these cases we treat the byte as a single raw
-            // value and consume one byte to allow iteration to continue.
+            // Invalid leading bytes are returned unchanged; this is not UTF-8 validation.
             code = first_byte as u32;
             1
         }

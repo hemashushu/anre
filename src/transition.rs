@@ -6,23 +6,17 @@
 
 use std::fmt::Display;
 
-/// A `Transition` represents a state transition in a regular expression engine.
-/// Each transition contains logic to match a specific pattern (for example, a character or string).
-/// When executed, it processes the input character from a given position
-/// and returns the result: either a failure or a success with additional information
-/// (for example, how many characters to move forward).
-///
-/// A transition is similar to the condition in an `if` statement in programming languages.
+/// A matching step that may advance the byte cursor or update backtracking state.
 #[derive(Debug)]
 pub enum Transition {
     // Basic transitions
     Jump(JumpTransition),                                   // unconditional jump
     Char(CharTransition),                                   // match a single specified character
-    AnyChar(AnyCharTransition),                             // match any single character
+    AnyChar(AnyCharTransition),                             // Match one character except LF and CR
     String(StringTransition),                               // match a specific string
-    CharSet(CharSetTransition),                             // match a set of characters or ranges
+    CharSet(CharSetTransition),                             // Match one character from a set
     BackReference(BackReferenceTransition), // match a backreference to a capture group
-    LineBoundaryAssertion(LineBoundaryAssertionTransition), // match line start or end
+    LineBoundaryAssertion(LineBoundaryAssertionTransition), // Assert the start or end of the input
     WordBoundaryAssertion(WordBoundaryAssertionTransition), // match word boundary or non-word boundary
 
     // Capture group transitions
@@ -30,8 +24,7 @@ pub enum Transition {
     CaptureEnd(CaptureEndTransition),
 
     // Counter transitions
-    // Since the repetition may be nested, we need to use a counter and
-    // a pair of save/load transitions to track the number of repetitions.
+    // Each repetition has its own counter so nested repetitions remain independent.
     CounterReset(CounterResetTransition), // Reset the counter to zero
     CounterIncrement(CounterIncrementTransition), // Increment the counter by one
 
@@ -39,7 +32,7 @@ pub enum Transition {
     RepetitionForward(RepetitionForwardTransition),
     RepetitionBack(RepetitionBackTransition),
 
-    // Look around assertion transitions
+    // Lookaround assertion transitions
     LookAheadAssertion(LookAheadAssertionTransition),
     LookBehindAssertion(LookBehindAssertionTransition),
 }
@@ -51,18 +44,18 @@ pub struct JumpTransition;
 /// Represents a transition that matches a single character.
 #[derive(Debug)]
 pub struct CharTransition {
-    pub codepoint: u32,     // Unicode codepoint of the character
+    pub codepoint: u32,     // Unicode code point of the character
     pub byte_length: usize, // Length of the character in bytes
 }
 
-// Represents a transition for the special character - any character.
+// Matches one Unicode scalar value, excluding LF and CR.
 #[derive(Debug)]
 pub struct AnyCharTransition;
 
 /// Represents a transition that matches a specific string.
 #[derive(Debug)]
 pub struct StringTransition {
-    pub codepoints: Vec<u32>, // Unicode codepoints of the string
+    pub codepoints: Vec<u32>, // Unicode code points of the string
     pub byte_length: usize,   // Total byte length of the string
 }
 
@@ -96,9 +89,7 @@ pub struct BackReferenceTransition {
 /// Represents a transition that asserts an anchor (for example, start or end of input).
 #[derive(Debug)]
 pub struct LineBoundaryAssertionTransition {
-    // Indicates the type of anchor assertion
-    // - false: start of line/input
-    // - true: end of line/input
+    // `false` asserts the start of the input; `true` asserts its end.
     pub is_end: bool,
 }
 
@@ -135,20 +126,17 @@ pub struct CounterIncrementTransition {
     pub counter_index: usize, // Index of the counter to increment
 }
 
-/// Represents a transition that checks the counter and moves forward if the condition is satisfied.
-///
-/// Jump forward if the counter value is satisfies the range of allowed repetitions.
+/// Exits a repetition when its count satisfies the required bounds.
 #[derive(Debug)]
 pub struct RepetitionForwardTransition {
     pub repetition_type: RepetitionType, // Type of repetition to check
 }
 
-/// Represents a transition that checks the counter and jumps back if the condition is satisfied.
-///
-/// Jump back if the counter value is less than the allowed number of repetitions.
+/// Repeats while below the upper bound, stopping empty iterations once the minimum is met.
 #[derive(Debug)]
 pub struct RepetitionBackTransition {
     pub repetition_type: RepetitionType, // Type of repetition
+    pub counter_index: usize,            // Index of the counter of the repetition
 }
 
 /// Represents a lookahead assertion transition.
@@ -163,7 +151,7 @@ pub struct LookAheadAssertionTransition {
 pub struct LookBehindAssertionTransition {
     pub route_index: usize,          // Index of the route to evaluate
     pub is_negative: bool,           // Whether the assertion is negative
-    pub match_length_in_char: usize, // Length of the match in characters
+    pub match_length_in_char: usize, // Fixed lookbehind length in Unicode scalar values
 }
 
 impl CharTransition {
@@ -259,7 +247,7 @@ pub fn add_range(items: &mut Vec<CharSetItem>, start: char, end_inclusive: char)
 
 pub fn add_preset_space(items: &mut Vec<CharSetItem>) {
     // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Character_classes
-    // [\f\n\r\t\v\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]
+    // Only space, tab, CR, and LF are included, not the full Unicode whitespace set.
     add_char(items, ' ');
     add_char(items, '\t');
     add_char(items, '\r');
@@ -350,8 +338,11 @@ impl RepetitionForwardTransition {
 }
 
 impl RepetitionBackTransition {
-    pub fn new(repetition_type: RepetitionType) -> Self {
-        RepetitionBackTransition { repetition_type }
+    pub fn new(repetition_type: RepetitionType, counter_index: usize) -> Self {
+        RepetitionBackTransition {
+            repetition_type,
+            counter_index,
+        }
     }
 }
 

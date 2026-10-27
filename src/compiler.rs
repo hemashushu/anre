@@ -23,19 +23,19 @@ use crate::{
     },
 };
 
-/// Compile from traditional regular expression.
+/// Compiles a traditional regular expression into an executable map.
 pub fn compile_from_regex(s: &str) -> Result<Map, AnreError> {
     let program = crate::traditional::parse_from_str(s)?;
     compile(&program)
 }
 
-/// Compile from ANRE regular expression.
+/// Compiles an ANRE expression into an executable map.
 pub fn compile_from_anre(s: &str) -> Result<Map, AnreError> {
     let program = crate::anre::parse_from_str(s)?;
     compile(&program)
 }
 
-/// Compile from AST `Program`.
+/// Compiles the shared AST into an executable map.
 pub fn compile(program: &Program) -> Result<Map, AnreError> {
     let mut map = Map::new();
     let mut compiler = Compiler::new(program, &mut map);
@@ -47,7 +47,7 @@ pub struct Compiler<'a> {
     // AST to compile.
     program: &'a Program,
 
-    // Compilation target object file.
+    // Target graph shared by the main route and lookaround subroutes.
     map: &'a mut Map,
 
     // Index of the route currently being emitted.
@@ -164,11 +164,7 @@ impl<'a> Compiler<'a> {
         //   \----------------------- group component ---------------------/
         // ```
         //
-        // The "group" in ANRE is different from the "group" in traditional regular expressions.
-        // In ANRE, a group is a sequence of expressions used to group patterns and
-        // modify operator precedence and associativity.
-        // Functionally, a group in ANRE is equivalent to a non-capturing group
-        // in traditional regular expressions.
+        // ANRE groups concatenate expressions without introducing captures.
 
         let mut components = vec![];
         for expression in expressions {
@@ -391,13 +387,12 @@ impl<'a> Compiler<'a> {
                 self.continue_emit_optional(component, is_lazy)
             }
             FunctionName::Repeat | FunctionName::LazyRepeat => {
-                // Note that `LazyRepeat` is semantically equivalent to `Repeat`
-                // because the laziness of a fixed repetition has no effect.
+                // Laziness has no effect on a fixed repetition count.
 
                 let times = numbers[0];
                 if times == 0 {
                     // {0} = shortcut
-                    self.emit_empty()
+                    self.emit_never_matched(expression)
                 } else if times == 1 {
                     // {1} = non-repetition
                     self.emit_expression(expression)
@@ -431,7 +426,7 @@ impl<'a> Compiler<'a> {
                 if from == 0 {
                     if to == 0 {
                         // {0..0} = {0} = shortcut
-                        self.emit_empty()
+                        self.emit_never_matched(expression)
                     } else if to == 1 {
                         // {0..1} = optional
                         self.emit_optional(expression, is_lazy)
@@ -457,8 +452,15 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    /// An empty component contains only an unconditional jump transition.
-    /// It is introduced by expressions such as `{0}`, `{0..0}`, etc.
+    /// Preserves capture indices in an unreachable expression, then emits an empty component.
+    fn emit_never_matched(&mut self, expression: &Expression) -> Result<Component, AnreError> {
+        if contains_capture_group(expression) {
+            self.emit_expression(expression)?;
+        }
+        self.emit_empty()
+    }
+
+    /// Emits an unconditional jump for expressions that consume no input, such as `{0}`.
     fn emit_empty(&mut self) -> Result<Component, AnreError> {
         // Empty component:
         //
@@ -827,8 +829,7 @@ impl<'a> Compiler<'a> {
     ) -> Result<Component, AnreError> {
         // Greedy repetition:
         //
-        // Note: since the repetition may be nested, we need to use a counter and
-        // a pair of save/load transitions to track the number of repetitions.
+        // Each repetition has its own counter, restored by the undo log during backtracking.
         //
         // ```diagram
         //   /-------------------------------------------------------------------------\
@@ -882,7 +883,8 @@ impl<'a> Compiler<'a> {
         let counter_increment_transition =
             CounterIncrementTransition::new(repetition_counter_index);
         let repetition_forward_transition = RepetitionForwardTransition::new(repetition_type);
-        let repetition_back_transition = RepetitionBackTransition::new(repetition_type);
+        let repetition_back_transition =
+            RepetitionBackTransition::new(repetition_type, repetition_counter_index);
 
         route.create_path(
             in_node_index,
@@ -981,8 +983,7 @@ impl<'a> Compiler<'a> {
         // 5. Restore the previous route.
         self.set_current_route_index(saved_route_index);
 
-        // 6. Join the sub-route to the current route by
-        //    appending jump transitions around the sub-component.
+        // Attach the lookahead check after the consuming component in the parent route.
         let route = self.get_current_route_ref_mut();
         let in_node_index = route.create_node();
         let out_node_index = route.create_node();
@@ -1058,8 +1059,7 @@ impl<'a> Compiler<'a> {
         // 6. Restore the previous route.
         self.set_current_route_index(saved_route_index);
 
-        // 7. Join the sub-route to the current route by
-        //    appending jump transitions around the sub-component.
+        // Attach the lookbehind check before the consuming component in the parent route.
         let component = self.emit_expression(current_expression)?;
         let route = self.get_current_route_ref_mut();
         let in_node_index = route.create_node();
@@ -1085,6 +1085,22 @@ impl<'a> Compiler<'a> {
     }
 }
 
+fn contains_capture_group(expression: &Expression) -> bool {
+    match expression {
+        Expression::Group(exps) => exps.iter().any(contains_capture_group),
+        Expression::Or(left, right) => {
+            contains_capture_group(left) || contains_capture_group(right)
+        }
+        Expression::FunctionCall(fc) => {
+            matches!(fc.name, FunctionName::Index | FunctionName::Name)
+                || fc.args.iter().any(|arg| {
+                    matches!(arg, FunctionArgument::Expression(exp) if contains_capture_group(exp))
+                })
+        }
+        _ => false,
+    }
+}
+
 fn check_first_expression_is_start_assertion(expression: &Expression) -> bool {
     match expression {
         Expression::Group(exps) => {
@@ -1097,7 +1113,22 @@ fn check_first_expression_is_start_assertion(expression: &Expression) -> bool {
                 return true;
             }
 
-            if let Some(FunctionArgument::Expression(exp)) = fc.args.first() {
+            // Optional expressions may skip `is_start()`, so they cannot anchor the route.
+            let always_matches_first_argument = matches!(
+                fc.name,
+                FunctionName::Index
+                    | FunctionName::Name
+                    | FunctionName::OneOrMore
+                    | FunctionName::LazyOneOrMore
+                    | FunctionName::IsBefore
+                    | FunctionName::IsNotBefore
+                    | FunctionName::IsAfter
+                    | FunctionName::IsNotAfter
+            );
+
+            if always_matches_first_argument
+                && let Some(FunctionArgument::Expression(exp)) = fc.args.first()
+            {
                 return check_first_expression_is_start_assertion(exp);
             }
         }
@@ -1225,8 +1256,7 @@ mod tests {
         }
 
         // Group.
-        // Note: a group in ANRE is different from one in traditional regex.
-        // It is only a sequence pattern.
+        // ANRE groups concatenate patterns without capturing them.
         {
             let route = compile_from_anre(r#"('a',('b','c'), 'd')"#).unwrap();
             let s = route.get_debug_text();
@@ -2743,7 +2773,7 @@ define letter (['a'..'f'])
         {
             assert!(matches!(
                 compile_from_anre(r#"'a'.is_before()"#),
-                Err(AnreError::SyntaxIncorrect(_))
+                Err(AnreError::MessageWithRange(..))
             ));
         }
     }
@@ -2818,7 +2848,7 @@ define letter (['a'..'f'])
         {
             assert!(matches!(
                 compile_from_anre(r#"'a'.is_after()"#),
-                Err(AnreError::SyntaxIncorrect(_))
+                Err(AnreError::MessageWithRange(..))
             ));
         }
 

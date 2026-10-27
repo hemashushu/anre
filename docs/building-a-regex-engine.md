@@ -2,25 +2,25 @@
 
 ![Banner](images/banner.png)
 
-In this little book, I will discuss how the regular expression engine works. It covers the core functions of the engine, including matching, capturing, back-references, and backtracking. I will avoid introducing complex algorithms (like NFA and DFA).
+This short book explains how to build a backtracking regular expression engine, including matching, capturing groups, backreferences, and assertions. It focuses on an executable graph of nodes and transitions rather than formal automata theory.
 
-I hope this book is unique in that it explains the regular expression engine in a way that is easy to understand for everyone, and comprehensive in that it covers all the important details of the engine.
+The goal is to make the design approachable while explaining the details needed to implement it.
 
 <!-- @import "[TOC]" {cmd="toc" depthFrom=2 depthTo=4 orderedList=false} -->
 
 <!-- code_chunk_output -->
 
-- [1 Why do we need to understand the engine?](#1-why-do-we-need-to-understand-the-engine)
-- [2 A simple language](#2-a-simple-language)
-- [3 The matching process](#3-the-matching-process)
+- [1 Why Understand the Engine?](#1-why-understand-the-engine)
+- [2 A Small Pattern Language](#2-a-small-pattern-language)
+- [3 The Matching Process](#3-the-matching-process)
 - [4 Transitions and Nodes](#4-transitions-and-nodes)
-  - [4.1 Charset](#41-charset)
+  - [4.1 Character Sets](#41-character-sets)
   - [4.2 Repetition](#42-repetition)
-  - [4.3 Optional](#43-optional)
-  - [4.4 Conjunction](#44-conjunction)
+  - [4.3 Optional Matching](#43-optional-matching)
+  - [4.4 Concatenation](#44-concatenation)
   - [4.5 Capturing Groups](#45-capturing-groups)
-  - [4.6 Back-references](#46-back-references)
-  - [4.7 Alternative Branches](#47-alternative-branches)
+  - [4.6 Backreferences](#46-backreferences)
+  - [4.7 Alternation](#47-alternation)
   - [4.8 Boundary Assertions](#48-boundary-assertions)
   - [4.9 Lookahead and Lookbehind Assertions](#49-lookahead-and-lookbehind-assertions)
 - [5 Implementation](#5-implementation)
@@ -28,29 +28,31 @@ I hope this book is unique in that it explains the regular expression engine in 
 <!-- /code_chunk_output -->
 
 
-## 1 Why do we need to understand the engine?
+## 1 Why Understand the Engine?
 
-In the general impression of developers, regular expressions are used for validating, searching strings. The regular expression text is somewhat like random characters which are typed by a cat rolling on the keyboard. You may prefer searching for regular expressions on the internet and then copy and paste those cryptic strings into your code. Sometimes these expressions do not work; sometimes they work, but you do not know why.
+Developers often use regular expressions to search and validate text, yet their compact syntax can be difficult to read. Copying a pattern from the internet may solve an immediate problem without explaining why it works or when it will fail.
 
-Regular expressions are hard to master for two reasons: one is that they are designed concisely and compactly, and the other — more importantly — is that few people explain how they work. Most resources only tell you how to use them, similar to a teacher who teaches you only the syntax of C but never explains how a program actually runs on the computer.
+Syntax references explain what each construct means, but not necessarily how an engine executes it. Understanding execution makes it easier to reason about matching, backtracking, and performance.
 
-You only know the regular expression when you can build it.
+Building an engine is one way to develop that understanding.
 
-## 2 A simple language
+## 2 A Small Pattern Language
 
-The regular expression is a simple language that is a combination of literals, repetitions, groups, and alternative branches. It lacks some important features of a general-purpose programming language, such as variables, conditional branches, and loops. Its sole purpose is to describe what the expected characters look like — or more accurately, to guide the processor on how to match characters in the source string.
+A regular expression is a pattern language built from literals, repetition, groups, alternation, and assertions. It describes sequences of characters rather than general-purpose computations. Repetition and alternation provide looping and branching behavior during matching.
 
-> In short, regular expressions are used to match and capture characters
+This engine also supports backreferences, which can match languages beyond those described by formal regular expressions. Here, "regular expression" refers to the practical pattern language, including those extensions.
 
-Yes, it is not about strings, but about characters. This distinction is important because it is the foundation for understanding regular expressions and how the engine works.
+> An engine searches strings for matching character sequences and can capture selected parts of each match.
 
-## 3 The matching process
+For Unicode text, this engine treats a character as a Unicode scalar value, not necessarily a complete displayed symbol. Internally, it tracks UTF-8 byte offsets. The examples below use ASCII, so character indices and byte offsets coincide.
 
-Let's start with the simplified matching process. The simplest regular expression is just a character literal. For example, the regex `a` will match the character 'a' in a string.
+## 3 The Matching Process
+
+Start with a single character literal: the regex `a` matches the character 'a'. A search tries the pattern at successive starting positions until one attempt succeeds or all eligible positions have been tried.
 
 Consider these examples:
 
-- For a given string "abc", the processor will check the first character 'a', and since it is what the processor is looking for, it will mark the position (index 0 in this case) and end the process with success.
+- In `"abc"`, the first character is 'a', so the attempt at index 0 succeeds.
 
 ```diagram
 abc
@@ -58,9 +60,9 @@ abc
 |-- the processor is looking for 'a', and it is found at index 0
 ```
 
-The processor will return a tuple `(start, end)`, which are the start and end positions of the matched characters. In this case, it will return `(0, 1)`, which means the character 'a' is found at index 0 and ends at index 1 (the end position is exclusive).
+The result is a half-open range `(start, end)`: the start is included and the end is excluded. Here, `(0, 1)` identifies the character at index 0.
 
-- For a given string "cat", the processor will check the first character 'c', and since it is not what the processor is looking for, it will discard the matched characters (which is nothing in this case) and end the process with failure.
+- In `"cat"`, the first character is 'c', so the attempt at index 0 fails.
 
 ```diagram
 cat
@@ -68,7 +70,7 @@ cat
 |-- the processor is looking for 'a', but it is not found at index 0
 ```
 
-But the processor would not stop its job, it restart the matching process starts from the position next to the last start position (which is index 1 in this case) and find the character 'a'.
+The search then retries at index 1 and finds 'a'.
 
 ```diagram
 cat
@@ -76,9 +78,9 @@ cat
  |-- the processor is looking for 'a', and it is found at index 1
 ```
 
-Character 'a' is what the processor is looking for, it will mark the position (index 1 in this case) and end the process with success. Finally, the processor returns `(1, 2)`.
+This attempt succeeds, returning `(1, 2)`.
 
-- For a given string "dog", the processor will check each character one by one.
+- In `"dog"`, each candidate starting position is tried in turn.
 
 ```diagram
 dog
@@ -86,7 +88,7 @@ dog
 |-- the processor is looking for 'a', but it is not found at index 0
 ```
 
-Since none of them is what the processor is looking for, it end the process with failure and returns `null`.
+None contains 'a', so the search fails. The pseudocode represents "no match" as `null`; the Rust API uses `None`.
 
 ```diagram
 dog
@@ -94,27 +96,25 @@ dog
   |-- the processor is looking for 'a', but it is not found at index 2
 ```
 
-You may have notice that there is a "cursor" in the above diagrams, which is the position of the processor the currently checking. Actually, the processor has a context object, which contains some information the processor needs during matching process. One of them is a tuple:
+The diagrams use a cursor to show the current input position. Conceptually, a matching context tracks the search range and cursor:
 
 ```diagram
 (range_start, range_end, cursor)
 ```
 
-The `range_start` and `range_end` positions are the checking range of source string. Usually, the `range_start` position is 0 and the `range_end` position is the length of the string, but in some cases (such as lookahead and lookbehind assertions, which will be covered in the next section), the `range_start` and `range_end` positions can be different.
+The range usually spans the whole input, from 0 to its byte length. Subsequent searches and lookaround evaluations may start elsewhere. Consuming transitions cannot read past `range_end`, but zero-width expressions may still match at that position, including on empty input.
 
-The `cursor` is the position the processor is currently checking, as demonstrated in the above examples. When a new matching process starts, the `cursor` is set to the `range_start` position, and it keeps moving forward as the processor checks each character. When matching fails, the processor pulls the `cursor` back to the position just after the last start position and repeats the process. When the `cursor` start position reaches the `range_end` position, it indicates that the whole process has ended with failure.
+Keep the candidate start separate from the cursor. Each attempt begins with the cursor at the candidate start. Matching may advance it, and backtracking may restore an earlier position. If the entire attempt fails, the search advances the candidate start by one Unicode scalar value and retries. The search fails only after every eligible start, including the end position, has been tried. Anchored patterns need not retry at later positions.
 
-It is worth mentioning that some regular expression engines also provide functions like `find_all` or `match_all` to find all occurrences of a character in the string. The principle is quite simple: the engine repeats the matching process starting from the position just after the last successful match. For example, for a given string "banana", the engine will ultimately return `[(1, 2), (3, 4), (5, 6)]`, which contains three matches. However, this is a function of the engine, not the processor. In this article, we focus only on how the processor works.
+To find all non-overlapping matches, an iterator repeats the search from the previous match's end, not one character beyond it. For `a` in `"banana"`, this produces `[(1, 2), (3, 4), (5, 6)]`. Empty matches need special handling: skip an empty match at the previous match's end and advance by one complete UTF-8 character before retrying. This prevents duplicate empty matches and infinite loops while allowing a final empty match at the end of the input.
 
-> A processor performs the matching job only once on the source string, but the engine may launch the processor multiple times (with different `cursor` start positions) to find all matches.
+> A match attempt runs the pattern at one position. A search tries candidate positions; an iterator performs successive searches.
 
-Now, let's look at a bit more complex example, to match strings. For example, the regex `abc` expects to match the string "abc" in the source string.
-
-To the engine, strings are simply treated as a sequence of characters. The processor tries to match each character in the sequence one by one; if all characters are found in the source string, the processor marks the start and end positions and ends the process with success.
+Now consider the regex `abc`, which matches a sequence of three characters. At a given start, all three must match in order and without gaps.
 
 Consider these examples:
 
-- For a given string "abcde", the processor set the cursor to the beginning of the string (index 0) and expect character 'a'.
+- In `"abcde"`, the attempt at index 0 expects 'a'.
 
 ```diagram
 abcde
@@ -122,55 +122,56 @@ abcde
 |-- the processor is looking for 'a', and it is found at index 0
 ```
 
-It found 'a' at index 0 is what it is looking for, so it mark the start position (index 0) and moves the cursor to the next position (index 1) and expects character 'b'.
+The character matches. The processor records the start at index 0, advances to index 1, and expects 'b'.
 
 ```diagram
-|-- the matched characters start position, index 0
+|-- match start, index 0
 v
 abcde
  ^
  |-- the processor is looking for 'b', and it is found at index 1
 ```
 
-This process continues and the last expected character 'c' is found at index 2. Now, all expected characters are found, and the processor marks the end position (index 3) and end the process with success and returns `(0, 3)`.
+Next, 'c' matches at index 2. The cursor advances to index 3, and the attempt succeeds with `(0, 3)`.
 
 ```diagram
-|-- the matched characters start position, index 0
+|-- match start, index 0
 v
 abcde
   ^
   |-- the processor is looking for 'c', and it is found at index 2
 ```
 
-- For a given string "about", the processor finds the expected characters 'a' and 'b' at index 0 and index 1 respectively, but when it tries to find 'c', it finds 'o' at index 2, which is not what it is looking for. So the processor discards the matched characters ("ab" in this case) and ends the current attempt with failure.
+- In `"about"`, 'a' and 'b' match at indices 0 and 1, but index 2 contains 'o' rather than 'c'. The attempt fails, and its partial result is discarded; the source text itself is unchanged.
 
 ```diagram
-|-- the matched characters start position, index 0
+|-- match start, index 0
 v
 about
   ^
   |-- the processor is looking for 'c', but it is not found at index 2
 ```
 
-The processor does not stop immediately; it keeps advancing the cursor's start position and trying to find the "a-b-c" sequence until the cursor's start position reaches the end of the string. Since no match is found, it ends the process with failure and returns `null`.
+The search retries at each later candidate start. Since none matches `abc`, it returns `null`.
 
-In summary, the matching process is a bit similar to the simplest String-searching algorithm - the [naive string search](https://en.wikipedia.org/wiki/String-searching_algorithm#Naive_string_search). The complete process is:
+For literal sequences, this resembles [naive string search](https://en.wikipedia.org/wiki/String-searching_algorithm#Naive_string_search):
 
-- The processor confirm the checking range of the source string, and set the cursor to the beginning of the checking range.
-- It check the character the cursor is pointing to, if it is what it is looking for, it will mark the position and move on to the next character it needed until it finds all expected characters. If all expected characters are found, the processor will mark the end position and end the process with success and return `(start_position, end_position)`.
-- If any character does not match during the process, the processor discards the matched characters (if any) and ends the current attempt with failure. It then pulls the cursor back to the position just after the last start position and repeats the matching process. If the cursor's start position reaches the end of the string, the whole process ends with failure and the processor returns `null`.
+1. Select the input range and initialize the candidate start.
+2. Try the entire pattern from that start, advancing the cursor as characters match.
+3. If the pattern succeeds, return the half-open match range.
+4. If the attempt fails, discard its partial state, advance the candidate start by one character, and retry. Return no match once all eligible starts have failed.
 
 ## 4 Transitions and Nodes
 
-After reading the previous section, you might be wondering whether there is a second cursor pointing to the current expected character in the regular expression. There is no such cursor. Since regular expressions are a "language", not "data", they are intended to be compiled into code and run as a program.
+How does the processor know which part of the pattern to match next? In this design, it follows a compiled graph rather than moving a second cursor through the pattern text. Other engine designs may use different representations.
 
-> A complete regular expression engine consists of two parts: the compiler and the processor. The compiler parses the regular expression and generates code (which can be native machine instructions, bytecode, or a special data structure, depending on the implementation) that is then executed by the processor.
+> The compiler parses a pattern and produces an executable representation. The processor executes it against the input. That representation may be a graph, bytecode, or native machine code.
 
-From a programming perspective, regular expression programs are built from two structures: nodes and transitions.
+This engine represents a compiled pattern using nodes and transitions.
 
-Transitions are the paths between nodes. There are many kinds of transitions, such as character transitions, charset transitions, and repetition transitions. Most transitions resemble a function in a programming language that contains a single `if` statement, which checks the current state and determines whether it passes or not.
+Each transition connects two nodes and performs a matching operation, an assertion, or a state update. A character transition, for example, checks the next input character and advances the cursor if it matches.
 
-The pseudo code of a typical transition template is like this:
+The following is conceptual pseudocode, not compilable Rust. Cursor movements are measured in bytes, and `get_current_char()` returns no character at the end of the permitted input range. A transition continues to its target node only if its own condition succeeds:
 
 ```diagram
 struct Transition {
@@ -179,52 +180,60 @@ struct Transition {
 
 impl Transition {
     fn run(context) -> bool {
-        if condition is met {
+        if self.condition_holds(&context) {
             let new_context = ...;
             return next_node.run(new_context);
-        }else {
+        } else {
             return false;
         }
     }
 }
 ```
 
-For example, the single character regex `a` can be compiled into a transition:
+For example, a transition for `a` checks that input remains before comparing the character:
 
 ```diagram
 fn run(context) -> bool {
-    let current_char = context.get_current_char();
+    let Some(current_char) = context.get_current_char() else {
+        return false;
+    };
     if current_char == 'a' {
         let new_context = context.move_cursor_forward(1);
         return next_node.run(new_context);
-    }else {
+    } else {
         return false;
     }
 }
 ```
 
-Transitions are generated by the compiler; code such as `if current_char == 'a'` is hard-coded. When the regular expression becomes complex, many transitions are generated.
+The compiler stores the expected character, such as 'a', in the transition. The Rust implementation uses shared transition-handling code; it does not generate a separate function or machine-code instruction for every literal.
 
-Nodes are containers of transitions; each node holds a list of transitions. The pseudo code of a typical node is like this:
+Each node holds an ordered list of outgoing transitions. It tries them in order until one leads all the way to the exit node:
 
 ```diagram
 struct Node {
+    is_exit: bool,
     transitions: Vec<Transition>,
 }
 
 impl Node {
     fn run(context) -> bool {
+        if self.is_exit {
+            return true;
+        }
         for transition in self.transitions {
-            if transition.run(context) {
-                return true
+            if transition.run(context.clone()) {
+                return true;
             }
         }
-        return false
+        return false;
     }
 }
 ```
 
-The following diagram shows how the nodes and transitions are connected:
+Here, `context.clone()` means an independent copy of all mutable matching state, including the cursor, capture slots, and repetition counters. If a branch fails, the next branch starts from the original state. A successful branch must also make its final captures available to the caller; this boolean pseudocode omits that result plumbing. The actual engine avoids full copies by recording changes in an undo log and restoring them during backtracking.
+
+The following diagram shows a character transition between two nodes:
 
 ```diagram
   /-----------------------------\
@@ -237,11 +246,11 @@ The following diagram shows how the nodes and transitions are connected:
   \---- character component ----/
 ```
 
-We then wrap the pair of nodes (`in node` and `out node`) and the transitions into a component, which is the basic unit of the program.
+A component exposes an entry node (`in node`) and an exit node (`out node`) so the compiler can connect it to other components. The nodes and transitions belong to the compiled graph; the component itself only needs their entry and exit indices.
 
-> Each component has an `in node` and an `out node`; these form the interface of the component.
+> Reaching a component's exit does not necessarily mean the whole pattern has matched. Matching continues through any components that follow it.
 
-Components can be nested, for example, the regex `ab` can be compiled into two character components, and the two components are connected by a special transition called `jump` transition. All of them form a new component - string component. The following diagram represents the structure of string component:
+Components can be combined. For example, `ab` can be compiled into two character components connected by a jump transition. Together, they form a sequence component:
 
 ```diagram
   /-----------------------------------------------\
@@ -255,9 +264,9 @@ Components can be nested, for example, the regex `ab` can be compiled into two c
   \--------------- string component --------------/
 ```
 
-> Some implementations may optimize the sequence of characters into one new kind of transition, which is called string transition.
+> This engine can combine adjacent literals into a single string transition to reduce the number of matching steps.
 
-The `jump` transition is used to connect the two components, there is no checking inside this transition, it just guides the processor to jump to the next node without moving the cursor. The pseudo code of the `jump` transition is like this:
+A jump transition performs no check or state update. It continues at the target node without moving the input cursor:
 
 ```diagram
 fn run(context) -> bool {
@@ -265,64 +274,63 @@ fn run(context) -> bool {
 }
 ```
 
-Components are the building blocks of the program, they can be simple (like the character component) or complex (like the repeatition component the next section talks about, which contains multiple transitions, nodes, and inner components). The compiler generates components for each part of the regular expression, and then connects them together to form the complete program.
+The compiler builds larger components from smaller ones, then connects them into a complete pattern. Repetition, for example, adds looping transitions around an inner component.
 
-Where is the entry point of the program? In general, the `in node` of the top-most component is the entry. When a new matching process starts, the processor runs the `run` function of the entry node and keeps running the program until it reaches the exit node, which is the `out node` of the top-most component. Reaching the exit node means the process succeeded.
+The top-level component's entry and exit nodes are the program's entry and exit. Each match attempt starts at the entry node. Reaching the program's exit means the whole pattern has succeeded, though it need not cover the entire input unless the pattern requires both input boundaries.
 
-The exit node is special, its transition list is empty, and the pseudo code is like this:
+The program's exit node is a special success case, not an ordinary node with no alternatives:
 
 ```diagram
 fn run(context) -> bool {
-    return true
+    return true;
 }
 ```
 
-In summary, when a regular expression program is executed, the following process is performed:
+In summary, a match attempt starts at the entry node. Each node tries its transitions in order. A successful transition advances to its target node; if the continuation fails, the processor restores the saved state and tries the next alternative. The attempt succeeds upon reaching the program's exit and fails once no alternatives remain.
 
-- The processor invokes the function `run` from the entry node.
-- The node calls each transition in its list:
-  - If a transition is passed, the transition call the function `run` of its next node.
-  - If a transition is not passed, the node tries the next transition in its list.
-  - If any of the transitions returns true, the node return true without trying the rest of the transitions.
-  - If all transitions are tried and none of them is passed, the node returns false.
-- If the current node is the exit node, it returns true directly.
-- If the entry node returns true, it means the process is successful, otherwise, it means the process is failed.
+The recursive pseudocode illustrates depth-first backtracking. The Rust implementation uses an explicit stack to track pending transitions rather than recursively calling a function for each node. A stack avoids deep node-by-node recursion, but does not eliminate the potentially exponential running time of ambiguous patterns. For example, `(?:a+)+b` can explore many alternatives before failing on a long run of 'a's with no 'b'.
 
-This is how the processor works. I have introduced the basic components and transitions — the character component, the string component, the character transition, and the jump transition. In the following sections, I will introduce more complex components and transitions.
+The following sections build more complex components using the same model.
 
-### 4.1 Charset
+### 4.1 Character Sets
 
-The charset component is used to match a character against a set of characters. A charset component contains a single charset transition, which holds a set of characters and checks whether the current character is in that set. For example, the regex `[abc]` is compiled into a charset transition with the character set `['a', 'b', 'c']`. The pseudo code of this charset transition is like this:
+A character-set component consumes one character if it belongs to a specified set. For example, `[abc]` uses a transition containing 'a', 'b', and 'c':
 
 ```diagram
 fn run(context) -> bool {
-    let current_char = context.get_current_char();
-    if ['a', 'b', 'c'].contains(current_char) {
-        let new_context = context.move_cursor_forward(1);
+    let Some(current_char) = context.get_current_char() else {
+        return false;
+    };
+    if ['a', 'b', 'c'].contains(&current_char) {
+        let new_context = context.move_cursor_forward(current_char.len_utf8());
         return next_node.run(new_context);
-    }else {
+    } else {
         return false;
     }
 }
 ```
 
-Charset transitions can also contain character ranges. For example, the pseudo code of the transition for the regex `[a-z0-9-]` is like this:
+Sets can also contain inclusive character ranges. For example, `[a-z0-9-]` matches a lowercase ASCII letter, an ASCII digit, or a hyphen:
 
 ```diagram
 fn run(context) -> bool {
-    let current_char = context.get_current_char();
+    let Some(current_char) = context.get_current_char() else {
+        return false;
+    };
     if ('a'..='z').contains(&current_char) ||
         ('0'..='9').contains(&current_char) ||
         current_char == '-' {
-        let new_context = context.move_cursor_forward(1);
+        let new_context = context.move_cursor_forward(current_char.len_utf8());
         return next_node.run(new_context);
-    }else {
+    } else {
         return false;
     }
 }
 ```
 
-The structure of the charset component is:
+Advancing by `len_utf8()` preserves character boundaries when a set includes non-ASCII characters. A negated set such as `[^abc]` inverts the membership check, but still requires an input character; it cannot match at the end of the input.
+
+The component has the following structure:
 
 ```diagram
   /-----------------------------\
@@ -337,7 +345,7 @@ The structure of the charset component is:
 
 ### 4.2 Repetition
 
-The repetition component is used to match an inner component a certain number of times, such as `a{2}`, `a{2,}`, and `a{2,5}`. A repetition component consists of 5 transitions and 4 nodes, and its structure is:
+Repetition matches an inner component a specified number of times: exactly twice in `a{2}`, at least twice in `a{2,}`, or between two and five times in `a{2,5}`. The general component adds four wrapper nodes and five transitions around the inner component:
 
 ```diagram
   /-------------------------------------------------------------------------\
@@ -360,16 +368,22 @@ The repetition component is used to match an inner component a certain number of
   \--------------------- greedy repetition component -----------------------/
 ```
 
-- `in node` and `out node`: they are the interface of the component.
-- `left node` and `right node`: they are used internally to connect the inner component and the repetition transitions.
-- `counter reset transition`: each repetition component has a counter, which is used to count how many times the inner component is matched. The counter reset transition is used to reset the counter to 0 before the loop starts.
-- `counter increment transition`: this transition is used to increment the counter by 1, then to prepare for the checking transitions:
-  - `repetition back transition`: this transition is used to check the current counter value, if it is less than the maximum repetition times, it will jump back to the `left node` to execute the inner component again, otherwise, it will return false and the `repetition forward transition` will be tried.
-  - `repetition forward transition`: this transition is used to check the current counter value also, if it is greater than or equal to the minimum repetition times, it will jump to the `out node`, otherwise, the repetition component returns false.
+- The entry and exit nodes connect the repetition to the rest of the pattern.
+- The left node enters the inner component; the right node chooses whether to repeat or continue.
+- The reset transition sets this repetition's counter to zero.
+- The increment transition adds one after the inner component succeeds.
+- The back transition repeats while below the maximum count. An unbounded quantifier has no count-based upper limit.
+- The forward transition continues to the exit only when the count is within the allowed bounds.
 
-As described above, the repetition component executes the inner component as many times as possible until the counter reaches the maximum repetition count — hence the name greedy repetition. For example, the regex `a{2,4}` is compiled into a repetition component whose inner component is the character 'a', with a minimum of 2 and a maximum of 4 repetitions; it prefers to match 4 'a' characters whenever possible.
+In greedy repetition, the back transition is tried first. If another iteration or the rest of the pattern fails, backtracking can reduce the count and try the continuation again. For example, `a{2,4}a` in `"aaaa"` first tries four repetitions, then gives one back so the final `a` can match. Greediness is a preference, not a guarantee of the longest possible overall match.
 
-There is another kind of repetition component called lazy repetition, such as `a{2,5}?`, which is similar to greedy repetition but prefers to match as few times as possible. The structure of the lazy repetition component is almost identical to the greedy one, except that the order of the checking transitions is reversed:
+Each repetition needs its own counter, and counter updates must be restored during backtracking, just like capture updates. Otherwise, alternatives inside the repeated component can leave incorrect counts behind.
+
+The diagram executes the inner component at least once. A minimum of zero therefore needs an optional path around the repetition, described in the next section. A fixed count of zero skips the inner component entirely, but any capturing groups inside it must retain their indices.
+
+Repeated components may themselves match empty text, as in `(?:a?)*`. To avoid an infinite loop, stop repeating an empty iteration once the minimum count has been met. Before that point, further empty iterations may still be needed to satisfy the minimum.
+
+Lazy repetition, such as `a{2,5}?`, reverses the order of the two checking transitions:
 
 ```diagram
   /-------------------------------------------------------------------------\
@@ -389,11 +403,11 @@ There is another kind of repetition component called lazy repetition, such as `a
   \--------------------- lazy repetition component -------------------------/
 ```
 
-As shown in the diagram above, the `repetition forward transition` in the `right node` is tried before the `repetition back transition`. As a result, the component jumps to the `out node` as soon as the counter reaches the minimum repetition count, matching as few times as possible.
+The forward transition is tried first, so the component attempts to continue as soon as the minimum count is met. If the rest of the pattern fails, it can backtrack and try more repetitions. Greedy and lazy quantifiers differ in search order, not in which repetition counts they permit. For a fixed count such as `a{3}`, laziness has no effect.
 
-### 4.3 Optional
+### 4.3 Optional Matching
 
-The optional component is used to match an inner component 0 or 1 time, such as `a?`. The structure of the optional component is:
+An optional component matches its inner component zero or one time, as in `a?`:
 
 ```diagram
   /-----------------------------------------------------\
@@ -410,9 +424,9 @@ The optional component is used to match an inner component 0 or 1 time, such as 
   \--------------- greedy optional component -----------/
 ```
 
-There are two jump transitions in the `in node`: one jumps to the `inner component`, and the other jumps directly to the `out node`. It prefers to match the inner component when possible, which is why it is called greedy optional. For example, the regex `a?` is compiled into an optional component whose inner component is the character 'a', and it prefers to match 'a' whenever possible.
+The entry node has two outgoing jumps: one enters the inner component, and the other bypasses it. Greedy optional matching tries the inner component first. If that path or its continuation fails, the processor restores the original state and tries the bypass.
 
-There is another kind of optional component called lazy optional, such as `a??`, which is similar to the greedy optional but prefers to skip the inner component whenever possible. The structure of the lazy optional component is:
+Lazy optional matching, as in `a??`, reverses that order. It tries the bypass first, then the inner component if needed:
 
 ```diagram
   /-----------------------------------------------------\
@@ -429,13 +443,13 @@ There is another kind of optional component called lazy optional, such as `a??`,
   \---------------- lazy optional component ------------/
 ```
 
-Combined with the repetition component, these components can be used to match an inner component zero or more times, such as `a*` and `a{0,5}`.
+Combining an optional wrapper with positive-count repetition supports zero-based bounds. For example, `a*` can use an optional wrapper around `a+`, and `a{0,5}` can wrap `a{1,5}`. The wrapper and repetition must use the same greedy or lazy preference.
 
-### 4.4 Conjunction
+### 4.4 Concatenation
 
-In general, a regular expression is a sequence of components. For example, `0x[0-9a-fA-F]+` is a regex that matches a hexadecimal number. It contains two components: the string component `0x` and the repetition component `[0-9a-fA-F]+`. The processor executes the components one by one.
+A sequence of patterns is called concatenation, not logical conjunction. For example, `0x[0-9a-fA-F]+` combines the literal prefix `0x` with one or more hexadecimal digits. The second component begins where the first ends.
 
-The compiler wraps the sequence of components into a "group component", where all components are connected by jump transitions:
+The compiler connects the components with jump transitions and exposes the sequence as a group component:
 
 ```diagram
   /-------------------------------------------------------------\
@@ -450,11 +464,11 @@ The compiler wraps the sequence of components into a "group component", where al
   \----------------------- group component ---------------------/
 ```
 
-When any inner component returns false, the group component returns false immediately without trying the remaining components. Only when all inner components pass does the group component return true.
+All components must match in order. A failure in a later component may cause an earlier repetition or alternative to backtrack and try another path. The sequence fails only after those possibilities are exhausted. For example, `a+ab` matches `"aaab"` because `a+` can give back one character to the following `ab`.
 
 ### 4.5 Capturing Groups
 
-It is worth mentioning that the processor can not only match and return the `(start, end)` position of the entire matched characters, but also supports extracting the parts of the matched characters you are interested in — this is called capturing groups. For example, the regex `(\d{4})-(\d{2})-(\d{2})` matches a date string like "2026-06-23" and contains three capturing groups used to extract the year, month, and day from the matched string. And the processor will return a list of tuple:
+Capturing groups record selected parts of a match. For example, `(\d{4})-(\d{2})-(\d{2})` captures the year, month, and day in `"2026-06-23"`. Conceptually, the result contains these byte ranges:
 
 ```diagram
 [
@@ -465,11 +479,11 @@ It is worth mentioning that the processor can not only match and return the `(st
 ]
 ```
 
-In practice, the processor always returns a list of tuples even when there are no capturing groups in the regex; the first tuple is always the position of the overall matched result.
+Group 0 records the entire match. Explicit groups are numbered from 1 by the order of their opening parentheses. A named group also has an index. Even a pattern with no explicit captures needs a slot for group 0, although an API such as `find` may expose only that match.
 
-> If an engine supports functions like `find_all` or `match_all` to find all matches in the source string, the engine returns a list of lists of tuples.
+This pattern checks the shape of a date, not its calendar validity: it also accepts `"2026-99-99"`. Add start and end anchors when validating the entire input rather than searching for a substring.
 
-To support capturing groups, the processor's context object holds "capturing group slots" — a list of tuples, where each tuple stores the start and end position of a capturing group. The processor updates these slots when it executes a capturing group component, and the final result is read from these slots.
+The context stores an optional range for each capture group. `None` means the group did not participate, which differs from capturing an empty string. For example, `(a)?b` in `"b"` leaves group 1 unmatched, whereas `(a*)b` captures an empty range for that group. Iterating over captures produces one such result per match.
 
 The structure of the capturing group component is:
 
@@ -487,9 +501,9 @@ The structure of the capturing group component is:
   \---------------- capture component---------------/
 ```
 
-Each capturing group component has a group index and an optional name. The `capture start transition` marks the start position of the capturing group, and the `capture end transition` marks the end position. The processor updates the "capturing group slots" when it runs these two transitions.
+The capture-start and capture-end transitions update the group's slot with the current cursor position. These updates must be reversible: a failed alternative must not leave captures behind, and each new search must clear the previous search's state.
 
-In general, the compiler generates a capturing group component for the whole regex, thus the first capturing group slot is used to store the position of the overall matched characters. The structure of program component is:
+The compiler wraps the root expression in capture group 0 to record the entire match:
 
 ```diagram
   /---------------------------------------------------------\
@@ -505,11 +519,11 @@ In general, the compiler generates a capturing group component for the whole reg
   \------------------- program component--------------------/
 ```
 
-### 4.6 Back-references
+### 4.6 Backreferences
 
-Back-references are used to match the same characters as a previously matched capturing group. For example, the regex `(\w+)-\1` matches a string containing two identical words separated by a hyphen, such as "hello-hello". Here `\1` is a back-reference to the first capturing group, meaning it matches the same characters that the first capturing group captured.
+Backreferences match the exact text previously captured by a group. For example, `(\w+)-\1` matches `"hello-hello"`: `\1` repeats the text captured by group 1. In this engine, `\w` means ASCII letters, ASCII digits, or underscore, not Unicode word characters.
 
-The structure of the back-reference component is:
+The component has a single backreference transition:
 
 ```diagram
   /-----------------------------\
@@ -522,26 +536,33 @@ The structure of the back-reference component is:
   \-- back-reference component -/
 ```
 
-The back-reference transition read the specified capturing group slot to get the start and end position of the previously matched characters, then it checks if the current characters in the source string are the same as the previously matched characters. The pseudo code of the back-reference transition is like this:
+The transition reads the group's range and compares those bytes with the input at the current cursor. It must first check that enough input remains:
 
 ```diagram
 fn run(context) -> bool {
-    let (start, end) = context.get_capture_group_slot(group_index);
+    let Some((start, end)) = context.get_capture_group_slot(group_index) else {
+        return next_node.run(context);
+    };
     let length = end - start;
+    if length > context.remaining_bytes() {
+        return false;
+    }
     let current_substring = context.get_current_substring(length);
     let previous_substring = context.get_source_substring(start, end);
     if current_substring == previous_substring {
         let new_context = context.move_cursor_forward(length);
         return next_node.run(new_context);
-    }else {
+    } else {
         return false;
     }
 }
 ```
 
-### 4.7 Alternative Branches
+Here, lengths and cursor movements are measured in bytes. Matching the captured bytes exactly preserves UTF-8 boundaries. This engine treats a backreference to a group that did not participate as an empty match, as shown above; other engines may reject it. This behavior is separate from rejecting an invalid group index or unknown group name when compiling the pattern.
 
-There is only one type of branch in regular expressions: the alternative branch (i.e., the logical OR operator), such as `a|b`, which matches either 'a' or 'b'. The structure of the alternative branch component is:
+### 4.7 Alternation
+
+Alternation, written as `|`, chooses between patterns. For example, `a|b` matches 'a' or 'b'. The component connects two alternatives:
 
 ```diagram
   /-------------------------------------------------------\
@@ -562,18 +583,22 @@ There is only one type of branch in regular expressions: the alternative branch 
   \------------ alternative branch component -------------/
 ```
 
-There are two jump transitions in the `in node`: one jumps to the `left component`, and the other jumps to the `right component`. Both jump to the `out node` if they succeed, so as long as one of the components matches, the entire alternative branch matches.
+The entry node tries the left branch first. If that branch or the remainder of the pattern fails, it restores the original state and tries the right branch. For example, `(?:a|ab)c` matches `"abc"`: the first branch matches `a`, but the following `c` fails at `b`, so the processor retries with `ab`.
+
+This is leftmost-first matching, not longest-match selection. For example, `a|ab` in `"ab"` returns `"a"`, because that branch already completes the pattern successfully.
 
 ### 4.8 Boundary Assertions
 
-There are 4 types of boundary assertions in regular expressions: `^`, `$`, `\b`, and `\B`.
+This engine supports four boundary assertions:
 
-- `^`: matches the beginning of the string. The beginning boundary assertion transition checks whether the cursor equals the start position of the checking range.
-- `$`: matches the ending of the string. The ending boundary assertion transition checks whether the cursor equals the end position of the checking range.
-- `\b`: matches a word boundary. The word boundary assertion transition checks whether the current position is a word boundary — that is, the current character is a word character (alphanumeric or underscore) and the previous character is not, or vice versa.
-- `\B`: matches a non-word boundary. The non-word boundary assertion transition simply inverts the result of the word boundary assertion transition.
+- `^` succeeds only at byte offset 0 of the original input, not at the start of a search subrange.
+- `$` succeeds only at the end of the original input, not at the end of an arbitrary subrange.
+- `\b` succeeds where exactly one of the adjacent characters is a word character (`[A-Za-z0-9_]` in this engine). A missing character at either end counts as non-word.
+- `\B` succeeds wherever `\b` fails, including on empty input in this engine.
 
-The following diagram shows an example string with the positions where the boundary assertions return true:
+Other regex flavors may support multiline modes or allow `$` before a final newline. Those are not the semantics described here.
+
+The diagram marks positions where the assertions succeed; quotation marks delimit the example and are not part of the input:
 
 ```diagram
  |-- beginning boundary == true
@@ -587,9 +612,9 @@ The following diagram shows an example string with the positions where the bound
      |-- word boundary == true
 ```
 
-There are only two positions in the string where the word boundary assertion returns true: one is character 'a', and the other is the position after character 'e'. For more details about word boundaries, you can refer to the documentation of [JavaScript regular expressions](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Word_boundary_assertion).
+There are two word boundaries in `"....abcde...."`: immediately before 'a' and immediately after 'e'. Boundaries are positions between characters, not characters themselves. When examining the previous character in UTF-8, decode it from a character boundary rather than reading the byte at `cursor - 1`.
 
-The structure of these boundary assertion components are the same:
+All four assertions have the same component structure:
 
 ```diagram
   /-----------------------------\
@@ -602,17 +627,17 @@ The structure of these boundary assertion components are the same:
   \--- bound assert component --/
 ```
 
-Unlike other components, the boundary assertion component does not advance the cursor. It only peeks at the source string and returns true or false.
+A boundary assertion consumes no input. If its condition holds, execution continues at the target node with the cursor unchanged; otherwise, the current path fails.
 
 ### 4.9 Lookahead and Lookbehind Assertions
 
-Lookahead and lookbehind assertions check whether a certain pattern is followed or preceded by another pattern, without including that surrounding pattern in the matched result.
+Lookaround checks whether another pattern matches at a position without consuming its text in the parent match. Positive assertions require a match; negative assertions require the absence of one.
 
-For example, the lookahead assertion `\w+(?=ing)` matches a word only if it is followed by 'ing', as in "playing" or "singing". The lookbehind assertion `(?<=pre)\w+` matches a word only if it is preceded by 'pre', as in "prefix" or "prelude".
+For example, `\w+(?=ing)` matches `"play"` in `"playing"` and `"sing"` in `"singing"`, leaving the asserted `"ing"` outside the match. The lookbehind pattern `(?<=pre)\w+` matches `"fix"` in `"prefix"` and `"lude"` in `"prelude"`.
 
-There are also negative variants: `\w+(?!ing)` matches a word only if it is not followed by 'ing', and `(?<!pre)\w+` matches a word only if it is not preceded by 'pre'.
+Negative assertions check the text adjacent to the current position; they do not exclude an entire word based on its spelling. For example, `\w+(?!ing)` still matches all of `"playing"`, because no `"ing"` follows the word's end. Similarly, `(?<!pre)\w+` matches all of `"prefix"` when searching from the input's beginning, because no `"pre"` precedes that position.
 
-The structure of the look-ahead assertion component is:
+The following component matches an inner expression and then checks a lookahead. Only the assertion transition is zero-width; the inner component consumes input normally:
 
 ```diagram
   /----------------------------------------------\
@@ -627,7 +652,7 @@ The structure of the look-ahead assertion component is:
   \------------- lookahead assertion component --/
 ```
 
-And the structure of the look-behind assertion component is:
+The lookbehind check runs before the consuming inner component:
 
 ```diagram
   /-----------------------------------------------\
@@ -642,15 +667,23 @@ And the structure of the look-behind assertion component is:
   \-------- lookbehind assertion component -------/
 ```
 
-Look-around assertions are sub-programs within the regular expression program. They have their own entry and exit nodes and are executed with new context objects; only the checking range of the context object differs:
+Lookaround patterns compile into subroutes with their own entry and exit nodes. The processor pushes a nested routine onto the shared context, evaluates the subroute, and then resumes the parent at its original cursor. It must not search later starting positions within an assertion: `a(?=b)` requires 'b' immediately after 'a', not somewhere later in the input.
 
-- For a lookahead assertion, the start of the checking range is the current cursor position, and the end is the same as in the original context.
-- For a lookbehind assertion, the end of the checking range is the current cursor position, and the start is calculated from the maximum length of the lookbehind pattern. For example, for `(?<=pre)\w+`, the pattern "pre" has a maximum length of 3, so the start is the current cursor position minus 3. Variable-length lookbehind assertions are not supported in most regular expression engines.
+- Lookahead starts its subroute exactly at the parent cursor and may inspect the remaining input.
+- Lookbehind requires a fixed consumed length in this engine. For `(?<=pre)\w+`, the processor moves backward by three Unicode scalar values and starts the subroute there. If fewer than three characters precede the cursor, the positive assertion fails and the negative assertion succeeds.
 
-The look-around assertion component returns true if the inner component matches successfully, and false otherwise.
+Lookbehind length is a count of Unicode scalar values, not bytes, and must exclude text inspected by nested assertions. Variable-length lookbehind is rejected by this implementation; support and restrictions vary among other regex engines. Nested lookahead inside lookbehind may inspect text beyond the parent cursor, so the implementation does not truncate its view of the input at that cursor. The fixed consumed length ensures that the outer lookbehind ends at the correct position.
 
-When the sub-program end, the main program continues to execute the look-around assertion component with the return value from the sub-program.
+For a positive assertion, subroute success allows the parent to continue; for a negative assertion, subroute failure does. Capture changes from failed paths must be undone. Successful positive assertions may expose captures even though the assertion itself consumes no input. The parent pattern succeeds only if its continuation also succeeds.
 
 ## 5 Implementation
 
-TODO
+The [Regex ANRE source](../src/lib.rs) implements this design in Rust. Both pattern syntaxes compile to the same AST and executable graph:
+
+1. The [traditional parser](../src/traditional/parser.rs) and [ANRE parser](../src/anre/parser.rs) produce the shared [AST](../src/ast.rs). ANRE also expands macros before parsing.
+2. The [compiler](../src/compiler.rs) turns the AST into [nodes, routes, and components](../src/object.rs). Lookaround patterns become separate routes.
+3. [Transitions](../src/transition.rs) describe matching operations and state updates. The [processor](../src/process.rs) executes them with an explicit backtracking stack.
+4. The [context](../src/context.rs) stores captures, counters, nested routines, and an undo log. Stack frames record where to roll back state when a path fails.
+5. The public [Regex API](../src/regex.rs) exposes searching, capture extraction, and iteration. Its tests cover empty matches, UTF-8 boundaries, capture rollback, and nested repetition.
+
+Read the compiler and processor together: each emitted transition has a corresponding runtime behavior. The recursive pseudocode in this book is a model of that behavior, not a literal transcription of the Rust implementation.
