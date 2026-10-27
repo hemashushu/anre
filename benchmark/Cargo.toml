@@ -1,0 +1,13 @@
+[package]
+name = "anre-benchmark"
+version = "0.1.0"
+edition = "2024"
+publish = false
+default-run = "anre-benchmark"
+
+[dependencies]
+regex-anre = { path = ".." }
+regex = "1.13"
+
+[profile.release]
+debug = 1

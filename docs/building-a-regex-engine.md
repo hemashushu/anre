@@ -24,6 +24,12 @@ The goal is to make the design approachable while explaining the details needed 
   - [4.8 Boundary Assertions](#48-boundary-assertions)
   - [4.9 Lookahead and Lookbehind Assertions](#49-lookahead-and-lookbehind-assertions)
 - [5 Implementation](#5-implementation)
+- [6 Performance Optimizations](#6-performance-optimizations)
+  - [6.1 Where the Time Goes](#61-where-the-time-goes)
+  - [6.2 Skipping Impossible Start Positions](#62-skipping-impossible-start-positions)
+  - [6.3 Skipping Runs That Already Failed](#63-skipping-runs-that-already-failed)
+  - [6.4 Making Each Step Cheaper](#64-making-each-step-cheaper)
+  - [6.5 Measuring the Results](#65-measuring-the-results)
 
 <!-- /code_chunk_output -->
 
@@ -687,3 +693,88 @@ The [Regex ANRE source](../src/lib.rs) implements this design in Rust. Both patt
 5. The public [Regex API](../src/regex.rs) exposes searching, capture extraction, and iteration. Its tests cover empty matches, UTF-8 boundaries, capture rollback, and nested repetition.
 
 Read the compiler and processor together: each emitted transition has a corresponding runtime behavior. The recursive pseudocode in this book is a model of that behavior, not a literal transcription of the Rust implementation.
+
+## 6 Performance Optimizations
+
+The engine described so far is correct but slow. This chapter explains three optimizations that make it several times faster without changing its design: the compiled graph, the backtracking stack, and the undo log all stay the same.
+
+### 6.1 Where the Time Goes
+
+Recall how a search works: it tries the pattern at position 0, then 1, then 2, and so on, until an attempt succeeds. Every attempt runs the graph from the entry node, even when it fails at the first character. For a 2 MB text, that means about two million attempts.
+
+There are two ways to go faster:
+
+- Make fewer attempts, by skipping start positions that cannot possibly match.
+- Make each attempt cheaper, by reducing the work per transition.
+
+The first kind gives the largest gains, so we start there.
+
+### 6.2 Skipping Impossible Start Positions
+
+Consider the pattern `\d{4}-\d{2}-\d{2}`. Any match must begin with a digit. If the current character is a letter, there is no need to run the graph at all: the attempt is certain to fail.
+
+The compiler therefore analyzes the AST before the search begins and builds a table of 256 entries, one per byte value. An entry is true if a match may begin with that byte:
+
+```diagram
+pattern             bytes that may begin a match
+-------------       ----------------------------
+abc                 'a'
+apple|banana        'a', 'b'
+\b[A-Z][a-z]+       'A'..'Z'   (the zero-width \b is skipped)
+[^>]                every byte except '>'
+```
+
+During the search, the processor scans forward to the next byte marked in the table and only starts an attempt there. Scanning a byte table is far cheaper than running the graph.
+
+Two details keep this correct:
+
+- Bytes are checked, not characters, because the input is UTF-8. A non-ASCII character is identified by its first (lead) byte. For a range such as `[一-龥]`, all lead bytes from the first to the last character are marked. This can mark a few extra bytes, which is safe: the table only needs to never miss a real start; an extra candidate simply leads to a failed attempt.
+- If the pattern might match empty text, as `a*` or `a?b` can, any position could be a match, including one before a character absent from the table. The compiler produces no table for such patterns, and the search tries every position as before.
+
+The analysis follows the structure of the AST: a sequence takes the first element that consumes a character, alternation takes the union of both branches, and a repetition takes its inner expression, unless it may repeat zero times. See [src/start_position_analyzer.rs](../src/start_position_analyzer.rs).
+
+This single optimization made the benchmark about seven times faster on average.
+
+### 6.3 Skipping Runs That Already Failed
+
+The byte table cannot help with a pattern such as `[a-z]+ing`, because almost every letter in English text may start a match. Worse, the search repeats work. In the word `"jumped"`:
+
+```diagram
+jumped
+^         attempt at 0: [a-z]+ takes "jumped", then gives back characters
+          one at a time, looking for "ing" after each. All fail.
+ ^        attempt at 1: [a-z]+ takes "umped", then repeats the same search.
+  ^       attempt at 2: ...and so on, six attempts for one word.
+```
+
+Observe that the attempt at 1 looks for `"ing"` at positions 2 through 6, and the attempt at 0 has already looked at positions 1 through 6. Every later attempt inside the same run of letters checks a subset of what the first attempt already checked. Since the first attempt failed, they will fail too.
+
+So, when a pattern begins with an unbounded repetition of a single character class (`S+`, `S*`, or `S{n,}`) and an attempt fails, the search jumps to the end of the run of `S` characters instead of moving forward by one. In the example, one attempt per word replaces six.
+
+This reasoning holds only when the rest of the pattern does not care where the run started. A backreference breaks that assumption: in `(a+)b\1`, the captured run is required again later, so starting inside the run gives a shorter capture and a different result. The compiler disables this optimization for any pattern containing a backreference. It also requires the repetition to be the very first element; with a leading assertion such as `\b[a-z]+`, the later start positions would not be covered by the first attempt.
+
+### 6.4 Making Each Step Cheaper
+
+The remaining optimizations reduce the cost of individual steps without changing what they do:
+
+- **Nodes with one path skip the stack.** A node with several outgoing transitions is a choice point and must save its alternatives for backtracking. A node with only one transition has nothing to come back to, so the processor runs that transition directly instead of pushing it onto the stack and immediately popping it again.
+- **Strings are compared as bytes.** Two UTF-8 strings are equal exactly when their bytes are equal, so a string literal is compared with one slice comparison instead of decoding each character.
+- **Character sets precompute ASCII membership.** Checking `[A-Za-z0-9._%+-]` means testing several ranges. The compiler answers that question in advance for all 128 ASCII characters and stores the answers in a table; only non-ASCII characters still check the ranges.
+
+### 6.5 Measuring the Results
+
+Optimizations should be measured, not guessed. The [benchmark](../benchmark/src/main.rs) crate runs fifteen patterns over generated English, HTML, and Unicode text in the `examples` directory, and compares this engine with the widely used [`regex`](https://crates.io/crates/regex) crate. Before timing anything, it checks that both engines report the same matches, so the benchmark also serves as a correctness test.
+
+```bash
+cd benchmark
+cargo run --release --bin generate   # create the sample text
+cargo run --release                  # run all cases
+cargo run --release -- email         # run cases whose names contain "email"
+```
+
+On average, these optimizations made the engine about nine times faster. It remains roughly fifteen times slower than `regex`, though the gap varies widely:
+
+- It is small (1.3 to 3 times) when matches are short and frequent, such as capitalized words, HTML tags, or runs of Chinese characters.
+- It is large for pure literal searches and for patterns like email addresses that backtrack inside every word. The `regex` crate uses techniques outside the scope of this book there, such as SIMD substring search and finite automata, which never backtrack.
+
+In exchange, this engine still compiles patterns faster than `regex`, and its design remains small enough to read and understand from start to finish.

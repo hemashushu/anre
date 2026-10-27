@@ -10,6 +10,7 @@ use crate::{
         FunctionCall, FunctionName, Literal, PresetCharSetName, Program,
     },
     error::AnreError,
+    start_position_analyzer::{calculate_first_bytes, find_leading_run},
     match_length_calculator::{MatchLength, calculate_match_length},
     object::{Component, Map, Route},
     transition::{
@@ -131,6 +132,12 @@ impl<'a> Compiler<'a> {
         route.entry_node_index = in_node_index;
         route.exit_node_index = out_node_index;
         route.is_fixed_cursor_begin_position = is_fixed_cursor_begin_position;
+
+        self.map.first_bytes = calculate_first_bytes(&program.expression);
+        self.map.leading_run = match find_leading_run(&program.expression) {
+            Some(literal) => Some(literal_transition(literal)?),
+            None => None,
+        };
 
         Ok(())
     }
@@ -500,76 +507,11 @@ impl<'a> Compiler<'a> {
         //   |                             |
         //   \----- literal component -----/
         // ```
-        match literal {
-            Literal::AnyChar => self.emit_literal_any_char(),
-            Literal::Char(character) => self.emit_literal_char(*character),
-            Literal::String(s) => self.emit_literal_string(s),
-            Literal::CharSet(charset) => self.emit_literal_charset(charset),
-            Literal::PresetCharSet(name) => self.emit_literal_preset_charset(name),
-        }
-    }
+        let transition = literal_transition(literal)?;
 
-    fn emit_literal_char(&mut self, character: char) -> Result<Component, AnreError> {
         let route = self.get_current_route_ref_mut();
         let in_node_index = route.create_node();
         let out_node_index = route.create_node();
-        let transition = Transition::Char(CharTransition::new(character));
-
-        route.create_path(in_node_index, out_node_index, transition);
-        Ok(Component::new(in_node_index, out_node_index))
-    }
-
-    fn emit_literal_any_char(&mut self) -> Result<Component, AnreError> {
-        let route = self.get_current_route_ref_mut();
-        let in_node_index = route.create_node();
-        let out_node_index = route.create_node();
-        let transition = Transition::AnyChar(AnyCharTransition);
-
-        route.create_path(in_node_index, out_node_index, transition);
-        Ok(Component::new(in_node_index, out_node_index))
-    }
-
-    fn emit_literal_string(&mut self, s: &str) -> Result<Component, AnreError> {
-        let route = self.get_current_route_ref_mut();
-        let in_node_index = route.create_node();
-        let out_node_index = route.create_node();
-        let transition = Transition::String(StringTransition::new(s));
-
-        route.create_path(in_node_index, out_node_index, transition);
-        Ok(Component::new(in_node_index, out_node_index))
-    }
-
-    fn emit_literal_preset_charset(
-        &mut self,
-        name: &PresetCharSetName,
-    ) -> Result<Component, AnreError> {
-        let route = self.get_current_route_ref_mut();
-        let in_node_index = route.create_node();
-        let out_node_index = route.create_node();
-
-        let charset_transition = match name {
-            PresetCharSetName::CharWord => CharSetTransition::new_preset_charset_word(),
-            PresetCharSetName::CharNotWord => CharSetTransition::new_preset_charset_not_word(),
-            PresetCharSetName::CharSpace => CharSetTransition::new_preset_charset_space(),
-            PresetCharSetName::CharNotSpace => CharSetTransition::new_preset_charset_not_space(),
-            PresetCharSetName::CharDigit => CharSetTransition::new_preset_charset_digit(),
-            PresetCharSetName::CharNotDigit => CharSetTransition::new_preset_charset_not_digit(),
-        };
-
-        let transition = Transition::CharSet(charset_transition);
-        route.create_path(in_node_index, out_node_index, transition);
-        Ok(Component::new(in_node_index, out_node_index))
-    }
-
-    fn emit_literal_charset(&mut self, charset: &CharSet) -> Result<Component, AnreError> {
-        let route = self.get_current_route_ref_mut();
-        let in_node_index = route.create_node();
-        let out_node_index = route.create_node();
-
-        let mut items: Vec<CharSetItem> = vec![];
-        append_charset(charset, &mut items)?;
-
-        let transition = Transition::CharSet(CharSetTransition::new(items, charset.negative));
         route.create_path(in_node_index, out_node_index, transition);
         Ok(Component::new(in_node_index, out_node_index))
     }
@@ -1083,6 +1025,28 @@ impl<'a> Compiler<'a> {
 
         Ok(Component::new(in_node_index, out_node_index))
     }
+}
+
+fn literal_transition(literal: &Literal) -> Result<Transition, AnreError> {
+    let transition = match literal {
+        Literal::AnyChar => Transition::AnyChar(AnyCharTransition),
+        Literal::Char(character) => Transition::Char(CharTransition::new(*character)),
+        Literal::String(s) => Transition::String(StringTransition::new(s)),
+        Literal::PresetCharSet(name) => Transition::CharSet(match name {
+            PresetCharSetName::CharWord => CharSetTransition::new_preset_charset_word(),
+            PresetCharSetName::CharNotWord => CharSetTransition::new_preset_charset_not_word(),
+            PresetCharSetName::CharSpace => CharSetTransition::new_preset_charset_space(),
+            PresetCharSetName::CharNotSpace => CharSetTransition::new_preset_charset_not_space(),
+            PresetCharSetName::CharDigit => CharSetTransition::new_preset_charset_digit(),
+            PresetCharSetName::CharNotDigit => CharSetTransition::new_preset_charset_not_digit(),
+        }),
+        Literal::CharSet(charset) => {
+            let mut items: Vec<CharSetItem> = vec![];
+            append_charset(charset, &mut items)?;
+            Transition::CharSet(CharSetTransition::new(items, charset.negative))
+        }
+    };
+    Ok(transition)
 }
 
 fn contains_capture_group(expression: &Expression) -> bool {

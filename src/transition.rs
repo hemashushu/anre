@@ -55,8 +55,8 @@ pub struct AnyCharTransition;
 /// Represents a transition that matches a specific string.
 #[derive(Debug)]
 pub struct StringTransition {
-    pub codepoints: Vec<u32>, // Unicode code points of the string
-    pub byte_length: usize,   // Total byte length of the string
+    pub text: String,
+    pub byte_length: usize, // Total byte length of the string
 }
 
 /// Represents a transition that matches a set of characters or ranges.
@@ -64,6 +64,7 @@ pub struct StringTransition {
 pub struct CharSetTransition {
     pub items: Vec<CharSetItem>, // List of characters or ranges
     pub negative: bool,          // Whether the set is negated
+    ascii_table: [bool; 128],    // Precomputed membership of ASCII characters
 }
 
 /// Represents an item in a character set, either a single character or a range.
@@ -166,11 +167,9 @@ impl CharTransition {
 
 impl StringTransition {
     pub fn new(s: &str) -> Self {
-        let chars: Vec<u32> = s.chars().map(|item| item as u32).collect();
-        let byte_length = s.len();
         StringTransition {
-            codepoints: chars,
-            byte_length,
+            text: s.to_owned(),
+            byte_length: s.len(),
         }
     }
 }
@@ -191,7 +190,24 @@ impl CharSetItem {
 
 impl CharSetTransition {
     pub fn new(items: Vec<CharSetItem>, negative: bool) -> Self {
-        CharSetTransition { items, negative }
+        let mut ascii_table = [false; 128];
+        for (c, member) in ascii_table.iter_mut().enumerate() {
+            *member = items_contain(&items, c as u32);
+        }
+
+        CharSetTransition {
+            items,
+            negative,
+            ascii_table,
+        }
+    }
+
+    /// Checks membership, ignoring `negative`.
+    pub fn contains(&self, c: u32) -> bool {
+        match self.ascii_table.get(c as usize) {
+            Some(member) => *member,
+            None => items_contain(&self.items, c),
+        }
     }
 
     pub fn new_preset_charset_word() -> Self {
@@ -239,6 +255,13 @@ impl CharSetTransition {
 
 pub fn add_char(items: &mut Vec<CharSetItem>, c: char) {
     items.push(CharSetItem::new_char(c));
+}
+
+fn items_contain(items: &[CharSetItem], c: u32) -> bool {
+    items.iter().any(|item| match item {
+        CharSetItem::Char(expected) => c == *expected,
+        CharSetItem::Range(range) => c >= range.start && c <= range.end_inclusive,
+    })
 }
 
 pub fn add_range(items: &mut Vec<CharSetItem>, start: char, end_inclusive: char) {
@@ -422,9 +445,8 @@ impl Display for AnyCharTransition {
 impl Display for StringTransition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = self
-            .codepoints
-            .iter()
-            .map(|item| unsafe { char::from_u32_unchecked(*item) })
+            .text
+            .chars()
             .map(escape_char)
             .collect::<Vec<String>>()
             .join("");

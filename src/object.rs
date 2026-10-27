@@ -37,6 +37,13 @@ pub struct Map {
     pub capture_groups: Vec<Option<String>>,
 
     pub repetition_counter_count: usize,
+
+    // Bytes that can begin a match, used to skip hopeless start positions.
+    pub first_bytes: Option<[bool; 256]>,
+
+    // The character matcher of a leading `S+`-like repetition, used to skip
+    // start positions inside a run that already failed to match.
+    pub leading_run: Option<Transition>,
 }
 
 // A `Route` represents a series of nodes.
@@ -83,6 +90,8 @@ impl Map {
             routes: vec![],
             capture_groups: vec![],
             repetition_counter_count: 0,
+            first_bytes: None,
+            leading_run: None,
         }
     }
 

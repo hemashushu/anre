@@ -2042,6 +2042,37 @@ let matches: Vec<Option<Match>> = matches
     }
 
     #[test]
+    fn test_process_start_position_skipping() {
+        let ranges = |re: &Regex, text: &str| -> Vec<_> { re.find_iter(text).map(|m| m.range()).collect() };
+
+        // A leading run must still allow a match that starts at its beginning.
+        for re in build("('a'+, 'b')", "a+b") {
+            assert_eq!(ranges(&re, "aaab xab aa"), vec![0..4, 6..8]);
+        }
+
+        for re in build("(['a'..'z']+, \"ing\")", "[a-z]+ing") {
+            assert_eq!(ranges(&re, "singing ring ing"), vec![0..7, 8..12]);
+        }
+
+        for re in build("('x'*, 'y')", "x*y") {
+            assert_eq!(ranges(&re, "xxzxy y"), vec![3..5, 6..7]);
+        }
+
+        for re in build("(['a'..'z']+?, 'q')", "[a-z]+?q") {
+            assert_eq!(ranges(&re, "abq cq"), vec![0..3, 4..6]);
+        }
+
+        for re in build("(['一'..'龥']+, 'x')", "[一-龥]+x") {
+            assert_eq!(ranges(&re, "文字x 文"), vec![0..7]);
+        }
+
+        // Backreferences disable the run skip: "aab" must not be skipped.
+        for re in build("(#'a'+, 'b', ^1)", r"(a+)b\1") {
+            assert_eq!(ranges(&re, "aaaba"), vec![2..5]);
+        }
+    }
+
+    #[test]
     fn test_process_zero_repetition_keeps_group_numbering() {
         for re in build("((#'a'){0}, #'b')", "(a){0}(b)") {
             let caps = re.captures("b").unwrap();

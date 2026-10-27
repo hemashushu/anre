@@ -5,9 +5,9 @@
 // For more details, see the LICENSE, LICENSE.additional, and CONTRIBUTING files.
 
 use crate::{
-    context::{Context, MatchRange, Routine},
+    context::{Context, MatchRange, Routine, TransitionStackItem},
     object::{MAIN_ROUTE_INDEX, Map},
-    transition::{CharSetItem, RepetitionType, Transition},
+    transition::{RepetitionType, Transition},
     utf8_codepoint_reader::{next_codepoint, previous_codepoint},
 };
 
@@ -37,16 +37,43 @@ pub fn start_routine(
     let routine = Routine::new(start_position, end_position, route_index);
     context.routines.push(routine);
 
+    let is_fixed = map.routes[route_index].is_fixed_cursor_begin_position;
+    let is_main_search = route_index == MAIN_ROUTE_INDEX && !is_fixed;
+    let first_bytes = map.first_bytes.as_ref().filter(|_| is_main_search);
+    let leading_run = map.leading_run.as_ref().filter(|_| is_main_search);
+
     // Include the end position because zero-width patterns may match there.
     loop {
+        // Skip positions whose byte cannot begin a match.
+        if let Some(table) = first_bytes {
+            match context.bytes[cursor..end_position]
+                .iter()
+                .position(|byte| table[*byte as usize])
+            {
+                Some(offset) => cursor += offset,
+                None => break,
+            }
+        }
+
         if execute_transitions(context, map, cursor) {
             result = true;
             break;
         }
 
         // Anchored routes and lookaround subroutes must not search later positions.
-        if map.routes[route_index].is_fixed_cursor_begin_position || cursor >= end_position {
+        if is_fixed || cursor >= end_position {
             break;
+        }
+
+        // Starts inside the leading run would only retry continuations that already failed.
+        if let Some(run) = leading_run {
+            let run_start = cursor;
+            while let Some(length) = run.match_char(context.bytes, cursor, end_position) {
+                cursor += length;
+            }
+            if cursor > run_start {
+                continue;
+            }
         }
 
         // Move forward by one character and try again.
@@ -73,7 +100,8 @@ fn execute_transitions(context: &mut Context, map: &Map, cursor: usize) -> bool 
     context.push_transitions_of_node(map, entry_node_index, cursor, 0);
 
     // Pending alternatives preserve both the cursor and the state needed for backtracking.
-    while let Some(frame) = context.pop_transition_stack_item() {
+    let mut next_frame = context.pop_transition_stack_item();
+    while let Some(frame) = next_frame {
         // Discard slot changes made after this frame was pushed.
         context.rollback(frame.undo_log_length);
 
@@ -88,25 +116,36 @@ fn execute_transitions(context: &mut Context, map: &Map, cursor: usize) -> bool 
 
         let execute_result = transition.execute(context, map, last_cursor, last_repetition_count);
 
-        match execute_result {
+        next_frame = match execute_result {
             ExecuteResult::Success(move_forward_in_bytes, current_repetition_count) => {
                 if target_node_index == exit_node_index {
                     // Reached the exit node of the route, meaning the route matching succeeded.
                     return true;
                 }
 
-                // Add transitions of the target node.
-                context.push_transitions_of_node(
-                    map,
-                    target_node_index,
-                    last_cursor + move_forward_in_bytes,
-                    current_repetition_count,
-                );
+                let next_cursor = last_cursor + move_forward_in_bytes;
+                if route.nodes[target_node_index].path.len() == 1 {
+                    // A node with a single path is not a backtracking point,
+                    // so its transition runs directly instead of going through the stack.
+                    Some(TransitionStackItem::new(
+                        next_cursor,
+                        current_repetition_count,
+                        target_node_index,
+                        0,
+                        context.undo_log.len(),
+                    ))
+                } else {
+                    context.push_transitions_of_node(
+                        map,
+                        target_node_index,
+                        next_cursor,
+                        current_repetition_count,
+                    );
+                    context.pop_transition_stack_item()
+                }
             }
-            ExecuteResult::Failure => {
-                // Check the next transition.
-            }
-        }
+            ExecuteResult::Failure => context.pop_transition_stack_item(),
+        };
     }
 
     // All transitions failed, meaning the route matching failed.
@@ -115,6 +154,27 @@ fn execute_transitions(context: &mut Context, map: &Map, cursor: usize) -> bool 
 }
 
 impl Transition {
+    /// Matches one character for `Char`, `AnyChar`, and `CharSet` transitions,
+    /// returning its byte length.
+    pub fn match_char(&self, bytes: &[u8], cursor: usize, range_end: usize) -> Option<usize> {
+        if cursor >= range_end {
+            return None;
+        }
+
+        let (current_char, byte_length) = get_char(bytes, cursor);
+        let is_matched = match self {
+            Transition::Char(transition) => current_char == transition.codepoint,
+            // `char_any` excludes LF and CR, but not other Unicode line separators.
+            Transition::AnyChar(_) => current_char != '\n' as u32 && current_char != '\r' as u32,
+            Transition::CharSet(transition) => {
+                transition.contains(current_char) ^ transition.negative
+            }
+            _ => unreachable!(),
+        };
+
+        is_matched.then_some(byte_length)
+    }
+
     /// Evaluates a transition using the cursor and count restored from its stack frame.
     pub fn execute(
         &self,
@@ -132,35 +192,11 @@ impl Transition {
                 // Jumps consume no input and cannot fail.
                 ExecuteResult::Success(0, 0)
             }
-            Transition::Char(transition) => {
-                let routine = context.get_current_routine_ref();
-
-                if cursor >= routine.range_end {
-                    ExecuteResult::Failure
-                } else {
-                    let (cp, _) = next_codepoint(context.bytes, cursor);
-                    if cp == transition.codepoint {
-                        ExecuteResult::Success(transition.byte_length, 0)
-                    } else {
-                        ExecuteResult::Failure
-                    }
-                }
-            }
-            Transition::AnyChar(_) => {
-                let routine = context.get_current_routine_ref();
-
-                if cursor >= routine.range_end {
-                    ExecuteResult::Failure
-                } else {
-                    let (current_char, byte_length) = get_char(context.bytes, cursor);
-
-                    // `char_any` excludes LF and CR, but not other Unicode line separators.
-                    // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Character_classes
-                    if current_char != '\n' as u32 && current_char != '\r' as u32 {
-                        ExecuteResult::Success(byte_length, 0)
-                    } else {
-                        ExecuteResult::Failure
-                    }
+            Transition::Char(_) | Transition::AnyChar(_) | Transition::CharSet(_) => {
+                let range_end = context.get_current_routine_ref().range_end;
+                match self.match_char(context.bytes, cursor, range_end) {
+                    Some(byte_length) => ExecuteResult::Success(byte_length, 0),
+                    None => ExecuteResult::Failure,
                 }
             }
             Transition::String(transition) => {
@@ -168,52 +204,10 @@ impl Transition {
 
                 if cursor + transition.byte_length > routine.range_end {
                     ExecuteResult::Failure
-                } else {
-                    let mut all_code_point_matched = true;
-                    let mut current_position: usize = cursor;
-
-                    for expected_codepoint in &transition.codepoints {
-                        let (actual_code_point, length) =
-                            next_codepoint(context.bytes, current_position);
-                        if *expected_codepoint != actual_code_point {
-                            all_code_point_matched = false;
-                            break;
-                        }
-                        current_position += length;
-                    }
-
-                    if all_code_point_matched {
-                        ExecuteResult::Success(transition.byte_length, 0)
-                    } else {
-                        ExecuteResult::Failure
-                    }
-                }
-            }
-            Transition::CharSet(transition) => {
-                let routine = context.get_current_routine_ref();
-
-                if cursor >= routine.range_end {
-                    return ExecuteResult::Failure;
-                }
-
-                let (current_char, byte_length) = get_char(context.bytes, cursor);
-                let mut found_any: bool = false;
-
-                for item in &transition.items {
-                    found_any = match item {
-                        CharSetItem::Char(c) => current_char == *c,
-                        CharSetItem::Range(r) => {
-                            current_char >= r.start && current_char <= r.end_inclusive
-                        }
-                    };
-
-                    if found_any {
-                        break;
-                    }
-                }
-
-                if found_any ^ transition.negative {
-                    ExecuteResult::Success(byte_length, 0)
+                } else if context.bytes[cursor..cursor + transition.byte_length]
+                    == *transition.text.as_bytes()
+                {
+                    ExecuteResult::Success(transition.byte_length, 0)
                 } else {
                     ExecuteResult::Failure
                 }

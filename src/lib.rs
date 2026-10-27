@@ -16,6 +16,7 @@ mod traditional;
 mod compiler;
 mod transition;
 mod match_length_calculator;
+mod start_position_analyzer;
 
 pub mod utf8_codepoint_reader;
 pub mod context;
