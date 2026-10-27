@@ -32,6 +32,9 @@ pub enum Transition {
     RepetitionForward(RepetitionForwardTransition),
     RepetitionBack(RepetitionBackTransition),
 
+    // A greedy repetition of a single character, matched in one step
+    CharRun(CharRunTransition),
+
     // Lookaround assertion transitions
     LookAheadAssertion(LookAheadAssertionTransition),
     LookBehindAssertion(LookBehindAssertionTransition),
@@ -138,6 +141,14 @@ pub struct RepetitionForwardTransition {
 pub struct RepetitionBackTransition {
     pub repetition_type: RepetitionType, // Type of repetition
     pub counter_index: usize,            // Index of the counter of the repetition
+}
+
+/// Matches as many characters as allowed in one step, leaving shorter
+/// lengths as backtracking alternatives.
+#[derive(Debug)]
+pub struct CharRunTransition {
+    pub char_transition: Box<Transition>, // A `Char`, `AnyChar`, or `CharSet` transition
+    pub repetition_type: RepetitionType,
 }
 
 /// Represents a lookahead assertion transition.
@@ -354,6 +365,32 @@ pub enum RepetitionType {
     RepeatRange(usize, usize),
 }
 
+impl RepetitionType {
+    pub fn min(&self) -> usize {
+        match self {
+            RepetitionType::Repeat(n) | RepetitionType::RepeatFrom(n) => *n,
+            RepetitionType::RepeatRange(m, _) => *m,
+        }
+    }
+
+    /// Returns `None` for an unbounded repetition.
+    pub fn max(&self) -> Option<usize> {
+        match self {
+            RepetitionType::Repeat(n) | RepetitionType::RepeatRange(_, n) => Some(*n),
+            RepetitionType::RepeatFrom(_) => None,
+        }
+    }
+}
+
+impl CharRunTransition {
+    pub fn new(char_transition: Transition, repetition_type: RepetitionType) -> Self {
+        CharRunTransition {
+            char_transition: Box::new(char_transition),
+            repetition_type,
+        }
+    }
+}
+
 impl RepetitionForwardTransition {
     pub fn new(repetition_type: RepetitionType) -> Self {
         RepetitionForwardTransition { repetition_type }
@@ -405,6 +442,7 @@ impl Display for Transition {
             Transition::CounterIncrement(t) => write!(f, "{}", t),
             Transition::RepetitionForward(t) => write!(f, "{}", t),
             Transition::RepetitionBack(t) => write!(f, "{}", t),
+            Transition::CharRun(t) => write!(f, "{}", t),
             Transition::LookAheadAssertion(t) => write!(f, "{}", t),
             Transition::LookBehindAssertion(t) => write!(f, "{}", t),
         }
@@ -550,6 +588,12 @@ impl Display for RepetitionType {
             RepetitionType::RepeatFrom(m) => write!(f, "[{}..]", m),
             RepetitionType::RepeatRange(m, n) => write!(f, "[{}..{}]", m, n),
         }
+    }
+}
+
+impl Display for CharRunTransition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Char run {} {}", self.char_transition, self.repetition_type)
     }
 }
 

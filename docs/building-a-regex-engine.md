@@ -28,8 +28,9 @@ The goal is to make the design approachable while explaining the details needed 
   - [6.1 Where the Time Goes](#61-where-the-time-goes)
   - [6.2 Skipping Impossible Start Positions](#62-skipping-impossible-start-positions)
   - [6.3 Skipping Runs That Already Failed](#63-skipping-runs-that-already-failed)
-  - [6.4 Making Each Step Cheaper](#64-making-each-step-cheaper)
-  - [6.5 Measuring the Results](#65-measuring-the-results)
+  - [6.4 Matching a Run of Characters in One Step](#64-matching-a-run-of-characters-in-one-step)
+  - [6.5 Making Each Step Cheaper](#65-making-each-step-cheaper)
+  - [6.6 Measuring the Results](#66-measuring-the-results)
 
 <!-- /code_chunk_output -->
 
@@ -411,6 +412,8 @@ Lazy repetition, such as `a{2,5}?`, reverses the order of the two checking trans
 
 The forward transition is tried first, so the component attempts to continue as soon as the minimum count is met. If the rest of the pattern fails, it can backtrack and try more repetitions. Greedy and lazy quantifiers differ in search order, not in which repetition counts they permit. For a fixed count such as `a{3}`, laziness has no effect.
 
+> Section 6.4 describes a faster equivalent that this engine uses for greedy repetitions of a single character.
+
 ### 4.3 Optional Matching
 
 An optional component matches its inner component zero or one time, as in `a?`:
@@ -696,7 +699,7 @@ Read the compiler and processor together: each emitted transition has a correspo
 
 ## 6 Performance Optimizations
 
-The engine described so far is correct but slow. This chapter explains three optimizations that make it several times faster without changing its design: the compiled graph, the backtracking stack, and the undo log all stay the same.
+The engine described so far is correct but slow. This chapter explains optimizations that make it about 25 times faster without changing its design: the compiled graph, the backtracking stack, and the undo log all stay the same.
 
 ### 6.1 Where the Time Goes
 
@@ -735,6 +738,11 @@ The analysis follows the structure of the AST: a sequence takes the first elemen
 
 This single optimization made the benchmark about seven times faster on average.
 
+The table only knows the first byte, which leads to two further improvements:
+
+- **Checking a literal prefix.** For `class="[a-z]+"`, every `c` in the text is a candidate, though few are followed by `lass="`. When every match must begin with a fixed string, the compiler records it, and the search compares the whole prefix before running the graph.
+- **Searching eight bytes at a time.** Finding the prefix's first byte then becomes the main cost. Instead of checking one byte at a time, the search loads eight bytes into a 64-bit integer. XOR with the target byte repeated eight times turns every matching byte into zero, and the well-known expression `(x - 0x0101...01) & !x & 0x8080...80` sets the high bit of each zero byte. If the result is not zero, its lowest set bit marks the first match among the eight bytes.
+
 ### 6.3 Skipping Runs That Already Failed
 
 The byte table cannot help with a pattern such as `[a-z]+ing`, because almost every letter in English text may start a match. Worse, the search repeats work. In the word `"jumped"`:
@@ -753,15 +761,50 @@ So, when a pattern begins with an unbounded repetition of a single character cla
 
 This reasoning holds only when the rest of the pattern does not care where the run started. A backreference breaks that assumption: in `(a+)b\1`, the captured run is required again later, so starting inside the run gives a shorter capture and a different result. The compiler disables this optimization for any pattern containing a backreference. It also requires the repetition to be the very first element; with a leading assertion such as `\b[a-z]+`, the later start positions would not be covered by the first attempt.
 
-### 6.4 Making Each Step Cheaper
+### 6.4 Matching a Run of Characters in One Step
+
+The repetition component in section 4.2 is general: its inner component can be anything, including groups, captures, and other repetitions. That generality has a price. For `[a-z]+`, every additional letter costs four transitions (a jump into the inner component, the character set, the counter increment, and the repetition back transition), plus saved alternatives and undo-log entries.
+
+Yet the most common repetitions repeat a single character: `\d{4}`, `[a-z]+`, `.*`. For a greedy repetition of a single character, the compiler emits one char run transition instead of the whole loop:
+
+```diagram
+  /-----------------------------\
+  |          char run           |
+  |        | transition         |
+  |        v                    |
+=====o==-------------------==o=====
+  | in node            out node |
+  |                             |
+  \----- char run component ----/
+```
+
+The char run consumes matching characters in a tight loop, up to the maximum count, and continues with the longest run. Backtracking must still be able to give characters back one at a time, so once the count reaches the minimum, the char run saves "continue from here" as a pending alternative before consuming each further character. Consider `[a-z]+ing` matching `"running"`:
+
+```diagram
+r u n n i n g
+0 1 2 3 4 5 6 7
+
+the char run consumes all 7 letters and saves alternatives at 1, 2, 3, 4, 5, 6
+continue at 7: "ing" fails
+pop 6:         "ing" fails
+pop 5:         "ing" fails
+pop 4:         "ing" matches, the result is (0, 7)
+```
+
+The alternatives are tried longest first, exactly as with the general component, so both produce the same matches. The specialization is safe because a single character contains no captures or nested counters that would need restoring.
+
+Lazy repetitions keep the general component. They try the shortest run first and extend it one character at a time, which a char run could only do by rescanning from the start for every extension.
+
+### 6.5 Making Each Step Cheaper
 
 The remaining optimizations reduce the cost of individual steps without changing what they do:
 
 - **Nodes with one path skip the stack.** A node with several outgoing transitions is a choice point and must save its alternatives for backtracking. A node with only one transition has nothing to come back to, so the processor runs that transition directly instead of pushing it onto the stack and immediately popping it again.
 - **Strings are compared as bytes.** Two UTF-8 strings are equal exactly when their bytes are equal, so a string literal is compared with one slice comparison instead of decoding each character.
 - **Character sets precompute ASCII membership.** Checking `[A-Za-z0-9._%+-]` means testing several ranges. The compiler answers that question in advance for all 128 ASCII characters and stores the answers in a table; only non-ASCII characters still check the ranges.
+- **Transition stacks are reused.** Every search and every lookaround evaluation used to allocate a new stack and grow it while pushing alternatives. The context now keeps emptied stacks and hands them out again.
 
-### 6.5 Measuring the Results
+### 6.6 Measuring the Results
 
 Optimizations should be measured, not guessed. The [benchmark](../benchmark/src/main.rs) crate runs fifteen patterns over generated English, HTML, and Unicode text in the `examples` directory, and compares this engine with the widely used [`regex`](https://crates.io/crates/regex) crate. Before timing anything, it checks that both engines report the same matches, so the benchmark also serves as a correctness test.
 
@@ -772,9 +815,20 @@ cargo run --release                  # run all cases
 cargo run --release -- email         # run cases whose names contain "email"
 ```
 
-On average, these optimizations made the engine about nine times faster. It remains roughly fifteen times slower than `regex`, though the gap varies widely:
+The following table shows how much slower this engine is than `regex` after each step, as a geometric mean over all cases:
 
-- It is small (1.3 to 3 times) when matches are short and frequent, such as capitalized words, HTML tags, or runs of Chinese characters.
-- It is large for pure literal searches and for patterns like email addresses that backtrack inside every word. The `regex` crate uses techniques outside the scope of this book there, such as SIMD substring search and finite automata, which never backtrack.
+| Step | Slower than `regex` |
+|------|---------------------|
+| Original engine | 137x |
+| Skipping impossible start positions | 20x |
+| Cheaper steps (single-path nodes, byte comparison, ASCII tables) | 16.5x |
+| Skipping runs that already failed | 15x |
+| Literal prefixes, eight-byte search, and stack reuse | 9.6x |
+| Char runs | 5.3x |
+
+Together, these optimizations made the engine about 25 times faster, though the gap to `regex` still varies widely:
+
+- When matches are short and frequent, as with capitalized words, HTML tags, or runs of Chinese characters, this engine is now about as fast as `regex`, sometimes slightly faster.
+- The gap remains large for alternations of several words, for literal-heavy patterns, and above all for patterns like email addresses that backtrack inside every word. There, the `regex` crate relies on techniques outside the scope of this book, such as SIMD substring search and finite automata, which never backtrack.
 
 In exchange, this engine still compiles patterns faster than `regex`, and its design remains small enough to read and understand from start to finish.

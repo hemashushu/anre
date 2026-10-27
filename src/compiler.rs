@@ -18,7 +18,7 @@ use crate::{
         CharSetItem, CharSetTransition, CharTransition, CounterIncrementTransition,
         CounterResetTransition, JumpTransition, LineBoundaryAssertionTransition,
         LookAheadAssertionTransition, LookBehindAssertionTransition, RepetitionBackTransition,
-        RepetitionForwardTransition, RepetitionType, StringTransition, Transition,
+        RepetitionForwardTransition, RepetitionType, StringTransition, Transition, CharRunTransition,
         WordBoundaryAssertionTransition, add_char, add_preset_digit, add_preset_space,
         add_preset_word, add_range,
     },
@@ -380,6 +380,15 @@ impl<'a> Compiler<'a> {
                 | FunctionName::LazyRepeatFrom
         );
 
+        // A greedy repetition of a single character becomes one `CharRun` transition
+        // instead of the general loop of counters and nodes.
+        if let Expression::Literal(literal) = expression
+            && !matches!(literal, Literal::String(_))
+            && let Some(repetition_type) = char_run_repetition_type(function_name, numbers)
+        {
+            return self.emit_char_run(literal, repetition_type);
+        }
+
         match function_name {
             // Quantifiers.
             FunctionName::Optional | FunctionName::LazyOptional => {
@@ -510,6 +519,33 @@ impl<'a> Compiler<'a> {
         //   \----- literal component -----/
         // ```
         let transition = literal_transition(literal)?;
+
+        let route = self.get_current_route_ref_mut();
+        let in_node_index = route.create_node();
+        let out_node_index = route.create_node();
+        route.create_path(in_node_index, out_node_index, transition);
+        Ok(Component::new(in_node_index, out_node_index))
+    }
+
+    fn emit_char_run(
+        &mut self,
+        literal: &Literal,
+        repetition_type: RepetitionType,
+    ) -> Result<Component, AnreError> {
+        // Char run component:
+        //
+        // ```diagram
+        //   /-----------------------------\
+        //   |          char run           |
+        //   |        | transition         |
+        //   |        v                    |
+        // =====o==-------------------==o=====
+        //   | in node            out node |
+        //   |                             |
+        //   \----- char run component ----/
+        // ```
+        let char_transition = literal_transition(literal)?;
+        let transition = Transition::CharRun(CharRunTransition::new(char_transition, repetition_type));
 
         let route = self.get_current_route_ref_mut();
         let in_node_index = route.create_node();
@@ -1027,6 +1063,26 @@ impl<'a> Compiler<'a> {
 
         Ok(Component::new(in_node_index, out_node_index))
     }
+}
+
+/// Returns the bounds for a `CharRun`, or `None` for repetitions handled by
+/// the general components: optional, lazy, and counts of zero or one.
+fn char_run_repetition_type(name: FunctionName, numbers: &[usize]) -> Option<RepetitionType> {
+    let repetition_type = match name {
+        FunctionName::OneOrMore => RepetitionType::RepeatFrom(1),
+        FunctionName::ZeroOrMore => RepetitionType::RepeatFrom(0),
+        FunctionName::RepeatFrom => RepetitionType::RepeatFrom(numbers[0]),
+        // Laziness has no effect on a fixed repetition count.
+        FunctionName::Repeat | FunctionName::LazyRepeat => RepetitionType::Repeat(numbers[0]),
+        FunctionName::RepeatRange if numbers[0] == numbers[1] => RepetitionType::Repeat(numbers[0]),
+        FunctionName::RepeatRange => RepetitionType::RepeatRange(numbers[0], numbers[1]),
+        _ => return None,
+    };
+
+    let is_trivial_or_invalid = repetition_type
+        .max()
+        .is_some_and(|max| max < 2 || max < repetition_type.min());
+    (!is_trivial_or_invalid).then_some(repetition_type)
 }
 
 fn literal_transition(literal: &Literal) -> Result<Transition, AnreError> {
@@ -2128,8 +2184,8 @@ define letter (['a'..'f'])
     fn test_compile_repeat() {
         // Repeat 2 times.
         for route in generate_routes(
-            r#"'a'{2}"#, // anre
-            r#"a{2}"#,   // regex
+            r#""ab"{2}"#, // anre
+            r#"(?:ab){2}"#,   // regex
         ) {
             let s = route.get_debug_text();
 
@@ -2137,7 +2193,7 @@ define letter (['a'..'f'])
                 s,
                 "\
 * node: 0
-  - Char 'a' -> 1
+  - String \"ab\" -> 1
 * node: 1
   - Counter increment -> 4
 * node: 2
@@ -2203,8 +2259,8 @@ define letter (['a'..'f'])
     fn test_compile_repeat_from() {
         // `{m,}`.
         for route in generate_routes(
-            r#"'a'{3..}"#, // anre
-            r#"a{3,}"#,    // regex
+            r#""ab"{3..}"#, // anre
+            r#"(?:ab){3,}"#,    // regex
         ) {
             let s = route.get_debug_text();
 
@@ -2212,7 +2268,7 @@ define letter (['a'..'f'])
                 s,
                 "\
 * node: 0
-  - Char 'a' -> 1
+  - String \"ab\" -> 1
 * node: 1
   - Counter increment -> 4
 * node: 2
@@ -2298,8 +2354,8 @@ define letter (['a'..'f'])
     fn test_compile_repeat_range() {
         // Greedy.
         for route in generate_routes(
-            r#"'a'{3..5}"#, // anre
-            r#"a{3,5}"#,    // regex
+            r#""ab"{3..5}"#, // anre
+            r#"(?:ab){3,5}"#,    // regex
         ) {
             let s = route.get_debug_text();
 
@@ -2307,7 +2363,7 @@ define letter (['a'..'f'])
                 s,
                 "\
 * node: 0
-  - Char 'a' -> 1
+  - String \"ab\" -> 1
 * node: 1
   - Counter increment -> 4
 * node: 2
@@ -2374,8 +2430,8 @@ define letter (['a'..'f'])
 
         // `{0, m}`.
         for route in generate_routes(
-            r#"'a'{0..5}"#, // anre
-            r#"a{0,5}"#,    // regex
+            r#""ab"{0..5}"#, // anre
+            r#"(?:ab){0,5}"#,    // regex
         ) {
             let s = route.get_debug_text();
 
@@ -2383,7 +2439,7 @@ define letter (['a'..'f'])
                 s,
                 "\
 * node: 0
-  - Char 'a' -> 1
+  - String \"ab\" -> 1
 * node: 1
   - Counter increment -> 4
 * node: 2
@@ -2479,6 +2535,49 @@ define letter (['a'..'f'])
     }
 
     #[test]
+    fn test_compile_char_run() {
+        // Greedy repetitions of a single character become one char run transition.
+        for (anre, regex, bounds) in [
+            ("'a'+", "a+", "[1..]"),
+            ("'a'*", "a*", "[0..]"),
+            ("'a'{3}", "a{3}", "[3]"),
+            ("'a'{3..}", "a{3,}", "[3..]"),
+            ("'a'{3..5}", "a{3,5}", "[3..5]"),
+            ("'a'{0..5}", "a{0,5}", "[0..5]"),
+            ("'a'{3..3}", "a{3,3}", "[3]"),
+        ] {
+            for route in generate_routes(anre, regex) {
+                assert_str_eq!(
+                    route.get_debug_text(),
+                    format!(
+                        "\
+* node: 0
+  - Char run Char 'a' {bounds} -> 1
+* node: 1
+  - Capture end {{0}} -> 3
+* node: 2 (in)
+  - Capture start {{0}} -> 0
+* node: 3 (out)
+# capture: {{0}}"
+                    )
+                );
+            }
+        }
+
+        // Other character kinds are supported too.
+        assert_str_eq!(
+            compile_from_regex(r"[a-c]+").unwrap().routes[MAIN_ROUTE_INDEX].nodes[0].path[0]
+                .transition
+                .to_string(),
+            "Char run Charset ['a'..'c'] [1..]"
+        );
+
+        // Lazy repetitions keep the general repetition component.
+        let route = compile_from_regex("a+?").unwrap();
+        assert!(!route.get_debug_text().contains("Char run"));
+    }
+
+    #[test]
     fn test_compile_notation_optional() {
         // Optional.
         for route in generate_routes(
@@ -2537,8 +2636,8 @@ define letter (['a'..'f'])
     fn test_compile_notation_one_or_more() {
         // One or more.
         for route in generate_routes(
-            r#"'a'+"#, // anre
-            r#"a+"#,   // regex
+            r#""ab"+"#, // anre
+            r#"(?:ab)+"#,   // regex
         ) {
             let s = route.get_debug_text();
 
@@ -2546,7 +2645,7 @@ define letter (['a'..'f'])
                 s,
                 "\
 * node: 0
-  - Char 'a' -> 1
+  - String \"ab\" -> 1
 * node: 1
   - Counter increment -> 4
 * node: 2
@@ -2600,8 +2699,8 @@ define letter (['a'..'f'])
     fn test_compile_notation_zero_or_more() {
         // Zero or more.
         for route in generate_routes(
-            r#"'a'*"#, // anre
-            r#"a*"#,   // regex
+            r#""ab"*"#, // anre
+            r#"(?:ab)*"#,   // regex
         ) {
             let s = route.get_debug_text();
 
@@ -2609,7 +2708,7 @@ define letter (['a'..'f'])
                 s,
                 "\
 * node: 0
-  - Char 'a' -> 1
+  - String \"ab\" -> 1
 * node: 1
   - Counter increment -> 4
 * node: 2

@@ -2073,6 +2073,45 @@ let matches: Vec<Option<Match>> = matches
     }
 
     #[test]
+    fn test_process_char_run_backtracking() {
+        let find = |re: &Regex, text: &str| re.find(text).map(|m| m.range());
+
+        // Greedy runs give back characters until the rest of the pattern matches.
+        for re in build("('a'{2..4}, 'a')", "a{2,4}a") {
+            assert_eq!(find(&re, "aaaaaa"), Some(0..5));
+            assert_eq!(find(&re, "aab"), None);
+        }
+
+        for re in build("(['a'..'z']*, 'x')", "[a-z]*x") {
+            assert_eq!(find(&re, "abcxyz"), Some(0..4));
+        }
+
+        for re in build("(char_any+, 'c')", ".+c") {
+            assert_eq!(find(&re, "abcabc\nc"), Some(0..6));
+        }
+
+        for re in build("('文'+, '字')", "文+字") {
+            assert_eq!(find(&re, "文文文字"), Some(0..12));
+        }
+
+        // Captures split the run the same way as the general repetition.
+        for re in build("(#'a'+, #'a'+)", "(a+)(a+)") {
+            let caps = re.captures("aaaa").unwrap();
+            assert_eq!(caps.get(1).map(|m| m.range()), Some(0..3));
+            assert_eq!(caps.get(2).map(|m| m.range()), Some(3..4));
+        }
+
+        // Runs nested inside a general repetition and inside lookahead.
+        for re in build("(('a'+, 'b')+, 'c')", "(?:a+b)+c") {
+            assert_eq!(find(&re, "aabababc"), Some(0..8));
+        }
+
+        for re in build("'x'.is_before(('a'+, 'b'))", "x(?=a+b)") {
+            assert_eq!(find(&re, "xaac xaab"), Some(5..6));
+        }
+    }
+
+    #[test]
     fn test_process_zero_repetition_keeps_group_numbering() {
         for re in build("((#'a'){0}, #'b')", "(a){0}(b)") {
             let caps = re.captures("b").unwrap();

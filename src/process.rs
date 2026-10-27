@@ -7,7 +7,7 @@
 use crate::{
     context::{Context, MatchRange, Routine, TransitionStackItem},
     object::{MAIN_ROUTE_INDEX, Map},
-    transition::{RepetitionType, Transition},
+    transition::{CharRunTransition, RepetitionType, Transition},
     utf8_codepoint_reader::{next_codepoint, previous_codepoint},
 };
 
@@ -160,7 +160,12 @@ fn execute_transitions(context: &mut Context, map: &Map, cursor: usize) -> bool 
         let transition = &transition_item.transition;
         let target_node_index = transition_item.target_node_index;
 
-        let execute_result = transition.execute(context, map, last_cursor, last_repetition_count);
+        let execute_result = match transition {
+            Transition::CharRun(run) => {
+                execute_char_run(context, map, run, last_cursor, target_node_index)
+            }
+            _ => transition.execute(context, map, last_cursor, last_repetition_count),
+        };
 
         next_frame = match execute_result {
             ExecuteResult::Success(move_forward_in_bytes, current_repetition_count) => {
@@ -197,6 +202,43 @@ fn execute_transitions(context: &mut Context, map: &Map, cursor: usize) -> bool 
     // All transitions failed, meaning the route matching failed.
     context.rollback(undo_log_length);
     false
+}
+
+/// Consumes as many characters as allowed and continues with the longest run.
+/// Each shorter valid length is pushed as an alternative for the target node,
+/// so backtracking gives back one character at a time, like the general repetition.
+fn execute_char_run(
+    context: &mut Context,
+    map: &Map,
+    run: &CharRunTransition,
+    cursor: usize,
+    target_node_index: usize,
+) -> ExecuteResult {
+    let range_end = context.get_current_routine_ref().range_end;
+    let min = run.repetition_type.min();
+    let max = run.repetition_type.max();
+
+    let mut count = 0;
+    let mut position = cursor;
+    while max.is_none_or(|max| count < max) {
+        let Some(length) = run
+            .char_transition
+            .match_char(context.bytes, position, range_end)
+        else {
+            break;
+        };
+        if count >= min {
+            context.push_transitions_of_node(map, target_node_index, position, 0);
+        }
+        position += length;
+        count += 1;
+    }
+
+    if count >= min {
+        ExecuteResult::Success(position - cursor, 0)
+    } else {
+        ExecuteResult::Failure
+    }
 }
 
 impl Transition {
@@ -237,6 +279,9 @@ impl Transition {
             Transition::Jump(_) => {
                 // Jumps consume no input and cannot fail.
                 ExecuteResult::Success(0, 0)
+            }
+            Transition::CharRun(_) => {
+                unreachable!("`execute_transitions` runs char runs because they need the target node")
             }
             Transition::Char(_) | Transition::AnyChar(_) | Transition::CharSet(_) => {
                 let range_end = context.get_current_routine_ref().range_end;
